@@ -77,6 +77,16 @@ async fn main() {
             "/api/projects/{project_id}/files/{asset_id}/preview",
             get(routes::files::preview),
         )
+        .route(
+            "/api/workflow-steps",
+            get(routes::workflow_steps::list).post(routes::workflow_steps::create),
+        )
+        .route(
+            "/api/workflow-steps/{id}",
+            get(routes::workflow_steps::get)
+                .patch(routes::workflow_steps::update)
+                .delete(routes::workflow_steps::delete),
+        )
         .route_layer(axum_mw::from_fn_with_state(state.clone(), middleware::casbin_auth));
 
     let app = Router::new()
