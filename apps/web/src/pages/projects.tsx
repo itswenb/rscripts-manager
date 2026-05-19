@@ -6,9 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { Plus, MoreHorizontal, Trash2 } from "lucide-react";
+import { Plus, MoreHorizontal, Trash2, FileText } from "lucide-react";
+
+const STATUS_CONFIG = {
+  success: { label: "Success", class: "bg-green-50 text-green-700 border-green-200" },
+  running: { label: "Running", class: "bg-blue-50 text-blue-700 border-blue-200" },
+  failed: { label: "Failed", class: "bg-red-50 text-red-700 border-red-200" },
+  idle: { label: "Idle", class: "bg-gray-50 text-gray-500 border-gray-200" },
+} as const;
 
 export function ProjectsPage() {
   const { data: projects, isLoading } = useProjects();
@@ -27,15 +35,15 @@ export function ProjectsPage() {
     setOpen(false);
   }
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading...</p>;
+  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Loading...</p>;
 
   return (
-    <div className="space-y-4">
+    <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">Projects</h1>
         <Button size="sm" onClick={() => setOpen(true)}>
           <Plus size={14} className="mr-1.5" />
-          New Project
+          Add New Project
         </Button>
       </div>
 
@@ -61,35 +69,20 @@ export function ProjectsPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Created</TableHead>
-              <TableHead className="w-10"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {projects?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">No projects yet</TableCell>
-              </TableRow>
-            )}
-            {projects?.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell className="font-medium">
-                  <Link to="/projects/$projectId" params={{ projectId: p.id }} className="hover:underline">
-                    {p.name}
-                  </Link>
-                </TableCell>
-                <TableCell className="text-muted-foreground text-sm">{p.description || "—"}</TableCell>
-                <TableCell className="text-muted-foreground text-sm">{new Date(p.created_at).toLocaleDateString()}</TableCell>
-                <TableCell>
+      {projects?.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground text-sm">No projects yet</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {projects?.map((p, i) => (
+            <Card key={p.id} className="relative group hover:shadow-md transition-shadow">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex items-start justify-between">
+                  <Badge variant="outline" className={STATUS_CONFIG.idle.class}>
+                    {STATUS_CONFIG.idle.label}
+                  </Badge>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-7 w-7">
+                      <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
                         <MoreHorizontal size={14} />
                       </Button>
                     </DropdownMenuTrigger>
@@ -103,12 +96,23 @@ export function ProjectsPage() {
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">PRJ-{String(i + 1).padStart(3, "0")}</p>
+                  <Link to="/projects/$projectId" params={{ projectId: p.id }} className="text-sm font-medium hover:underline">
+                    {p.name}
+                  </Link>
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{p.description || "No description"}</p>
+                <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t">
+                  <span className="flex items-center gap-1"><FileText size={12} /> Files</span>
+                  <span>{new Date(p.updated_at).toLocaleDateString()}</span>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
