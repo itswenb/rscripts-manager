@@ -2,6 +2,7 @@ use axum::{routing::get, Router};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
+mod auth;
 mod error;
 mod routes;
 mod state;
