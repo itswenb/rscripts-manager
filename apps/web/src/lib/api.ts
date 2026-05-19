@@ -1,15 +1,15 @@
-import { getToken, clearToken } from "./auth";
+import { getCredentials, clearCredentials } from "./auth";
 
 const BASE_URL = "/api";
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
+  const cred = getCredentials();
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (cred) {
+    headers["Authorization"] = `Basic ${cred}`;
   }
 
   if (!(options.body instanceof FormData)) {
@@ -19,7 +19,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    clearToken();
+    clearCredentials();
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }

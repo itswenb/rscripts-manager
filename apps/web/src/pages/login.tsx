@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { api } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { setCredentials } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -10,16 +9,27 @@ export function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setLoading(true);
     try {
-      const res = await api.post<{ token: string }>("/login", { username, password });
-      setToken(res.token);
+      const cred = btoa(`${username}:${password}`);
+      const res = await fetch("/api/projects", {
+        headers: { Authorization: `Basic ${cred}` },
+      });
+      if (res.status === 401) {
+        setError("Invalid credentials");
+        return;
+      }
+      setCredentials(username, password);
       navigate({ to: "/" });
-    } catch (err: any) {
-      setError(err.message || "Login failed");
+    } catch {
+      setError("Connection failed");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -41,7 +51,9 @@ export function LoginPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <Button type="submit" className="w-full">Login</Button>
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? "Logging in..." : "Login"}
+        </Button>
       </form>
     </div>
   );

@@ -1,12 +1,12 @@
 import { Outlet, Link, useNavigate } from "@tanstack/react-router";
-import { clearToken } from "@/lib/auth";
+import { clearCredentials } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 
 export function AuthenticatedLayout() {
   const navigate = useNavigate();
 
   function handleLogout() {
-    clearToken();
+    clearCredentials();
     navigate({ to: "/login" });
   }
 
