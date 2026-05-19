@@ -1,11 +1,16 @@
 import { Outlet, Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { clearCredentials } from "@/lib/auth";
-import { LayoutGrid, GitBranch, LogOut } from "lucide-react";
+import { LayoutGrid, GitBranch, LogOut, FileText, HelpCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/projects", label: "Projects", icon: LayoutGrid },
-  { to: "/workflow-steps", label: "Workflow Steps", icon: GitBranch },
+  { to: "/workflow-steps", label: "Workflows", icon: GitBranch },
+];
+
+const secondaryItems = [
+  { label: "Documentation", icon: FileText },
+  { label: "Support", icon: HelpCircle },
 ];
 
 export function AuthenticatedLayout() {
@@ -20,29 +25,40 @@ export function AuthenticatedLayout() {
 
   return (
     <div className="min-h-screen flex bg-background">
-      <aside className="w-52 border-r bg-card flex flex-col shrink-0">
+      <aside className="w-56 border-r bg-card flex flex-col shrink-0">
         <div className="px-4 py-4 border-b">
-          <span className="text-sm font-semibold tracking-tight">RFlow</span>
+          <span className="text-sm font-semibold tracking-tight">Rflow</span>
         </div>
         <nav className="flex-1 px-2 py-3 space-y-0.5">
-          {navItems.map(({ to, label, icon: Icon }) => {
-            const active = pathname === to || pathname.startsWith(to + "/");
-            return (
-              <Link
-                key={to}
-                to={to}
-                className={cn(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors",
-                  active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                )}
-              >
+          <div className="space-y-0.5">
+            {navItems.map(({ to, label, icon: Icon }) => {
+              const active = pathname === to || pathname.startsWith(to + "/");
+              return (
+                <Link
+                  key={to}
+                  to={to}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors",
+                    active
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                  )}
+                >
+                  <Icon size={15} />
+                  {label}
+                </Link>
+              );
+            })}
+          </div>
+          <div className="pt-4 mt-4 border-t space-y-0.5">
+            <span className="px-3 text-xs text-muted-foreground font-medium uppercase tracking-wider">Resources</span>
+            {secondaryItems.map(({ label, icon: Icon }) => (
+              <span key={label} className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-muted-foreground cursor-default">
                 <Icon size={15} />
                 {label}
-              </Link>
-            );
-          })}
+              </span>
+            ))}
+          </div>
         </nav>
         <div className="px-2 py-3 border-t">
           <button
@@ -55,9 +71,7 @@ export function AuthenticatedLayout() {
         </div>
       </aside>
       <main className="flex-1 overflow-auto">
-        <div className="p-6 max-w-5xl">
-          <Outlet />
-        </div>
+        <Outlet />
       </main>
     </div>
   );
