@@ -3,7 +3,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { LoginPage } from "@/pages/login";
 import { AuthenticatedLayout } from "@/pages/layout";
 import { ProjectsPage } from "@/pages/projects";
-import { ProjectDetailPage } from "@/pages/project-detail";
+import { ProjectDashboardPage } from "@/pages/project-dashboard";
 import { WorkflowStepsPage } from "@/pages/workflow-steps";
 
 const rootRoute = createRootRoute({
@@ -44,7 +44,15 @@ const projectsRoute = createRoute({
 const projectDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/projects/$projectId",
-  component: ProjectDetailPage,
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/projects/$projectId/dashboard", params });
+  },
+});
+
+const projectDashboardRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/projects/$projectId/dashboard",
+  component: ProjectDashboardPage,
 });
 
 const workflowStepsRoute = createRoute({
@@ -59,6 +67,7 @@ const routeTree = rootRoute.addChildren([
     indexRoute,
     projectsRoute,
     projectDetailRoute,
+    projectDashboardRoute,
     workflowStepsRoute,
   ]),
 ]);
