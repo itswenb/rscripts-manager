@@ -1,0 +1,6 @@
+[tools]
+node = "20"
+rust = "latest"
+
+[env]
+_.file = ".env"

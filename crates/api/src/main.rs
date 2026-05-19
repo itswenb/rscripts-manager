@@ -1,4 +1,8 @@
-use axum::{middleware as axum_mw, routing::{get, post}, Router};
+use axum::{
+    middleware as axum_mw,
+    routing::{get, post},
+    Router,
+};
 use casbin::{CoreApi, Enforcer, MgmtApi};
 use sqlx_adapter::SqlxAdapter;
 use std::sync::Arc;
@@ -26,7 +30,9 @@ async fn main() {
     let pool = rflow_core::db::create_pool(&database_url).await;
 
     let adapter = SqlxAdapter::new(&database_url, 8).await.unwrap();
-    let enforcer = Enforcer::new("config/casbin_model.conf", adapter).await.unwrap();
+    let enforcer = Enforcer::new("config/casbin_model.conf", adapter)
+        .await
+        .unwrap();
     let enforcer = Arc::new(RwLock::new(enforcer));
 
     {
@@ -34,9 +40,9 @@ async fn main() {
         let policies = e.get_policy();
         if policies.is_empty() {
             for act in ["GET", "POST", "PATCH", "DELETE"] {
-                e.add_policy(vec![
-                    "admin".into(), "/api/*".into(), act.into(),
-                ]).await.unwrap();
+                e.add_policy(vec!["admin".into(), "/api/*".into(), act.into()])
+                    .await
+                    .unwrap();
             }
             tracing::info!("Seeded default admin policies");
         }
@@ -99,7 +105,10 @@ async fn main() {
             "/api/projects/{project_id}/runs/{run_id}/outputs",
             get(routes::runs::list_outputs),
         )
-        .route_layer(axum_mw::from_fn_with_state(state.clone(), middleware::casbin_auth));
+        .route_layer(axum_mw::from_fn_with_state(
+            state.clone(),
+            middleware::casbin_auth,
+        ));
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -107,7 +116,7 @@ async fn main() {
         .with_state(state)
         .layer(TraceLayer::new_for_http());
 
-    let addr = std::env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:4001".into());
+    let addr = std::env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:1234".into());
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     tracing::info!("API server listening on {addr}");
     axum::serve(listener, app).await.unwrap();
