@@ -20,6 +20,9 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
+      core-js:
+        specifier: ^3.49.0
+        version: 3.49.0
       lucide-react:
         specifier: ^1.16.0
         version: 1.16.0(react@19.2.6)
