@@ -2,6 +2,9 @@ import { createRootRoute, createRoute, createRouter, redirect, Outlet } from "@t
 import { isAuthenticated } from "@/lib/auth";
 import { LoginPage } from "@/pages/login";
 import { AuthenticatedLayout } from "@/pages/layout";
+import { ProjectsPage } from "@/pages/projects";
+import { ProjectDetailPage } from "@/pages/project-detail";
+import { WorkflowStepsPage } from "@/pages/workflow-steps";
 
 const rootRoute = createRootRoute({
   component: Outlet,
@@ -32,19 +35,22 @@ const indexRoute = createRoute({
   },
 });
 
-export const projectsRoute = createRoute({
+const projectsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/projects",
+  component: ProjectsPage,
 });
 
-export const projectDetailRoute = createRoute({
+const projectDetailRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/projects/$projectId",
+  component: ProjectDetailPage,
 });
 
-export const workflowStepsRoute = createRoute({
+const workflowStepsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/workflow-steps",
+  component: WorkflowStepsPage,
 });
 
 const routeTree = rootRoute.addChildren([
