@@ -87,6 +87,18 @@ async fn main() {
                 .patch(routes::workflow_steps::update)
                 .delete(routes::workflow_steps::delete),
         )
+        .route(
+            "/api/projects/{project_id}/runs",
+            get(routes::runs::list).post(routes::runs::create),
+        )
+        .route(
+            "/api/projects/{project_id}/runs/{run_id}",
+            get(routes::runs::get),
+        )
+        .route(
+            "/api/projects/{project_id}/runs/{run_id}/outputs",
+            get(routes::runs::list_outputs),
+        )
         .route_layer(axum_mw::from_fn_with_state(state.clone(), middleware::casbin_auth));
 
     let app = Router::new()
