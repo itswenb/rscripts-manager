@@ -2,14 +2,34 @@ import { useState } from "react";
 import { useRuns, useCreateRun, useRunOutputs } from "@/lib/queries/runs";
 import { useWorkflowSteps } from "@/lib/queries/workflow-steps";
 import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { Play, Eye } from "lucide-react";
+import type { ScriptRun } from "@/lib/queries/runs";
+
+const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  pending: "outline",
+  running: "secondary",
+  completed: "default",
+  failed: "destructive",
+};
+
+const STATUS_CLASSES: Record<string, string> = {
+  pending: "border-yellow-400 text-yellow-700 bg-yellow-50",
+  running: "border-blue-400 text-blue-700 bg-blue-50",
+  completed: "border-green-400 text-green-700 bg-green-50",
+  failed: "border-red-400 text-red-700 bg-red-50",
+};
 
 export function RunsPanel({ projectId }: { projectId: string }) {
   const { data: runs, isLoading } = useRuns(projectId);
   const { data: steps } = useWorkflowSteps();
   const createRun = useCreateRun(projectId);
   const [selectedStep, setSelectedStep] = useState("");
-  const [expandedRun, setExpandedRun] = useState<string | null>(null);
+  const [detailRun, setDetailRun] = useState<ScriptRun | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -18,109 +38,125 @@ export function RunsPanel({ projectId }: { projectId: string }) {
     setSelectedStep("");
   }
 
-  if (isLoading) return <p>Loading...</p>;
+  function duration(run: ScriptRun): string {
+    if (!run.started_at) return "—";
+    const end = run.finished_at ? new Date(run.finished_at) : new Date();
+    const ms = end.getTime() - new Date(run.started_at).getTime();
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+
+  if (isLoading) return <p className="text-sm text-muted-foreground">Loading...</p>;
 
   return (
     <div className="space-y-4">
-      <form onSubmit={handleSubmit} className="flex gap-2 items-end">
-        <div>
-          <label className="text-sm font-medium">Workflow Step</label>
-          <select
-            value={selectedStep}
-            onChange={(e) => setSelectedStep(e.target.value)}
-            className="mt-1 block w-64 rounded-md border px-3 py-2 text-sm"
-          >
-            <option value="">Select a step...</option>
-            {steps?.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+      <form onSubmit={handleSubmit} className="flex items-end gap-3">
+        <div className="space-y-1.5 w-64">
+          <Label>Workflow Step</Label>
+          <Select value={selectedStep} onValueChange={setSelectedStep}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a step..." />
+            </SelectTrigger>
+            <SelectContent>
+              {steps?.map((s) => (
+                <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Button type="submit" disabled={!selectedStep || createRun.isPending}>
+        <Button type="submit" size="sm" disabled={!selectedStep || createRun.isPending}>
+          <Play size={13} className="mr-1.5" />
           Run
         </Button>
       </form>
 
-      <div className="space-y-3">
-        {runs?.map((run) => (
-          <Card key={run.id}>
-            <CardHeader className="py-3">
-              <CardTitle className="text-sm flex items-center justify-between">
-                <span>
-                  <StatusBadge status={run.status} />
-                  {" "}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-28">Status</TableHead>
+              <TableHead>Workflow Step</TableHead>
+              <TableHead>Started</TableHead>
+              <TableHead className="w-24">Duration</TableHead>
+              <TableHead className="w-10"></TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {runs?.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">No runs yet</TableCell>
+              </TableRow>
+            )}
+            {runs?.map((run) => (
+              <TableRow key={run.id}>
+                <TableCell>
+                  <Badge className={STATUS_CLASSES[run.status] ?? ""} variant="outline">
+                    {run.status}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-sm">
                   {steps?.find((s) => s.id === run.workflow_step_id)?.name ?? run.workflow_step_id.slice(0, 8)}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {new Date(run.created_at).toLocaleString()}
-                </span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="py-2">
-              <button
-                className="text-xs text-blue-600 hover:underline"
-                onClick={() => setExpandedRun(expandedRun === run.id ? null : run.id)}
-              >
-                {expandedRun === run.id ? "Hide details" : "Show details"}
-              </button>
-              {expandedRun === run.id && <RunDetails projectId={projectId} runId={run.id} run={run} />}
-            </CardContent>
-          </Card>
-        ))}
-        {runs?.length === 0 && <p className="text-muted-foreground text-sm">No runs yet</p>}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {run.started_at ? new Date(run.started_at).toLocaleString() : "—"}
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">{duration(run)}</TableCell>
+                <TableCell>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setDetailRun(run)}>
+                    <Eye size={13} />
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
+
+      <Dialog open={!!detailRun} onOpenChange={(o) => !o && setDetailRun(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Run Details</DialogTitle>
+          </DialogHeader>
+          {detailRun && <RunDetails projectId={projectId} run={detailRun} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    pending: "bg-yellow-100 text-yellow-800",
-    running: "bg-blue-100 text-blue-800",
-    completed: "bg-green-100 text-green-800",
-    failed: "bg-red-100 text-red-800",
-  };
+function RunDetails({ projectId, run }: { projectId: string; run: ScriptRun }) {
+  const { data: outputs } = useRunOutputs(projectId, run.id);
   return (
-    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? ""}`}>
-      {status}
-    </span>
-  );
-}
-
-function RunDetails({ projectId, runId, run }: { projectId: string; runId: string; run: any }) {
-  const { data: outputs } = useRunOutputs(projectId, runId);
-
-  return (
-    <div className="mt-2 space-y-2 text-xs">
+    <div className="space-y-3 text-sm">
       {run.stdout && (
-        <details>
-          <summary className="cursor-pointer font-medium">stdout</summary>
-          <pre className="mt-1 p-2 bg-muted rounded overflow-auto max-h-40">{run.stdout}</pre>
-        </details>
+        <div>
+          <p className="font-medium mb-1 text-xs text-muted-foreground uppercase tracking-wide">stdout</p>
+          <pre className="p-3 bg-muted rounded-md overflow-auto max-h-48 text-xs">{run.stdout}</pre>
+        </div>
       )}
       {run.stderr && (
-        <details>
-          <summary className="cursor-pointer font-medium">stderr</summary>
-          <pre className="mt-1 p-2 bg-muted rounded overflow-auto max-h-40">{run.stderr}</pre>
-        </details>
+        <div>
+          <p className="font-medium mb-1 text-xs text-muted-foreground uppercase tracking-wide">stderr</p>
+          <pre className="p-3 bg-muted rounded-md overflow-auto max-h-48 text-xs text-destructive">{run.stderr}</pre>
+        </div>
       )}
       {outputs && outputs.length > 0 && (
         <div>
-          <p className="font-medium">Outputs:</p>
-          <ul className="mt-1 space-y-1">
+          <p className="font-medium mb-1 text-xs text-muted-foreground uppercase tracking-wide">Outputs</p>
+          <ul className="space-y-1">
             {outputs.map((o) => (
-              <li key={o.id}>
-                <a
-                  href={`/api/projects/${projectId}/runs/${runId}/outputs/${o.id}/download`}
-                  className="text-blue-600 hover:underline"
-                >
+              <li key={o.id} className="flex items-center gap-2">
+                <a href={`/api/projects/${projectId}/runs/${run.id}/outputs/${o.id}/download`} className="text-primary hover:underline">
                   {o.name}
                 </a>
-                <span className="text-muted-foreground ml-2">({formatBytes(o.size_bytes)})</span>
+                <span className="text-muted-foreground text-xs">({formatBytes(o.size_bytes)})</span>
               </li>
             ))}
           </ul>
         </div>
+      )}
+      {!run.stdout && !run.stderr && (!outputs || outputs.length === 0) && (
+        <p className="text-muted-foreground">No output available</p>
       )}
     </div>
   );
