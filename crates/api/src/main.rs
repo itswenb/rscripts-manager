@@ -1,5 +1,5 @@
 use axum::{middleware as axum_mw, routing::get, Router};
-use casbin::{CoreApi, Enforcer};
+use casbin::{CoreApi, Enforcer, MgmtApi};
 use sqlx_adapter::SqlxAdapter;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -28,6 +28,19 @@ async fn main() {
     let adapter = SqlxAdapter::new(&database_url, 8).await.unwrap();
     let enforcer = Enforcer::new("config/casbin_model.conf", adapter).await.unwrap();
     let enforcer = Arc::new(RwLock::new(enforcer));
+
+    {
+        let mut e = enforcer.write().await;
+        let policies = e.get_policy();
+        if policies.is_empty() {
+            for act in ["GET", "POST", "PATCH", "DELETE"] {
+                e.add_policy(vec![
+                    "admin".into(), "/api/*".into(), act.into(),
+                ]).await.unwrap();
+            }
+            tracing::info!("Seeded default admin policies");
+        }
+    }
 
     let state = AppState { pool, enforcer };
 
