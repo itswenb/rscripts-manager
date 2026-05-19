@@ -13,6 +13,8 @@
   "license": "ISC",
   "packageManager": "pnpm@10.32.1",
   "dependencies": {
+    "@tanstack/react-query": "^5.100.11",
+    "@tanstack/react-router": "^1.170.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
