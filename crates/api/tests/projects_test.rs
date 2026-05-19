@@ -5,14 +5,35 @@ async fn base_url() -> String {
     std::env::var("TEST_API_URL").unwrap_or_else(|_| "http://localhost:4010".into())
 }
 
+fn admin_creds() -> (String, String) {
+    let user = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".into());
+    let pass = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "changeme".into());
+    (user, pass)
+}
+
+#[tokio::test]
+async fn test_unauthenticated_request_returns_401() {
+    let client = Client::new();
+    let base = base_url().await;
+
+    let res = client
+        .get(format!("{base}/api/projects"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), 401);
+}
+
 #[tokio::test]
 async fn test_project_crud() {
     let client = Client::new();
     let base = base_url().await;
+    let (user, pass) = admin_creds();
 
     // Create
     let res = client
         .post(format!("{base}/api/projects"))
+        .basic_auth(&user, Some(&pass))
         .json(&json!({"name": "Integration Test Project", "description": "testing"}))
         .send()
         .await
@@ -24,6 +45,7 @@ async fn test_project_crud() {
     // Get
     let res = client
         .get(format!("{base}/api/projects/{id}"))
+        .basic_auth(&user, Some(&pass))
         .send()
         .await
         .unwrap();
@@ -34,6 +56,7 @@ async fn test_project_crud() {
     // Update
     let res = client
         .patch(format!("{base}/api/projects/{id}"))
+        .basic_auth(&user, Some(&pass))
         .json(&json!({"name": "Updated Name"}))
         .send()
         .await
@@ -45,6 +68,7 @@ async fn test_project_crud() {
     // List
     let res = client
         .get(format!("{base}/api/projects"))
+        .basic_auth(&user, Some(&pass))
         .send()
         .await
         .unwrap();
@@ -55,6 +79,7 @@ async fn test_project_crud() {
     // Delete
     let res = client
         .delete(format!("{base}/api/projects/{id}"))
+        .basic_auth(&user, Some(&pass))
         .send()
         .await
         .unwrap();
@@ -63,6 +88,7 @@ async fn test_project_crud() {
     // Verify deleted
     let res = client
         .get(format!("{base}/api/projects/{id}"))
+        .basic_auth(&user, Some(&pass))
         .send()
         .await
         .unwrap();
