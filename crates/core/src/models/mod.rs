@@ -9,3 +9,9 @@ pub use file_asset::*;
 
 pub mod workflow_step;
 pub use workflow_step::*;
+
+pub mod script_run;
+pub use script_run::*;
+
+pub mod output_file;
+pub use output_file::*;
