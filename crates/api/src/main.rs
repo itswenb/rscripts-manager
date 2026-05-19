@@ -1,4 +1,4 @@
-use axum::{middleware as axum_mw, routing::get, Router};
+use axum::{middleware as axum_mw, routing::{get, post}, Router};
 use casbin::{CoreApi, Enforcer, MgmtApi};
 use sqlx_adapter::SqlxAdapter;
 use std::sync::Arc;
@@ -54,6 +54,28 @@ async fn main() {
             get(routes::projects::get)
                 .patch(routes::projects::update)
                 .delete(routes::projects::delete),
+        )
+        .route(
+            "/api/projects/{project_id}/files",
+            get(routes::files::list).post(routes::files::upload),
+        )
+        .route(
+            "/api/projects/{project_id}/files/directory",
+            post(routes::files::create_directory),
+        )
+        .route(
+            "/api/projects/{project_id}/files/{asset_id}",
+            get(routes::files::get)
+                .patch(routes::files::move_asset)
+                .delete(routes::files::delete),
+        )
+        .route(
+            "/api/projects/{project_id}/files/{asset_id}/download",
+            get(routes::files::download),
+        )
+        .route(
+            "/api/projects/{project_id}/files/{asset_id}/preview",
+            get(routes::files::preview),
         )
         .route_layer(axum_mw::from_fn_with_state(state.clone(), middleware::casbin_auth));
 
