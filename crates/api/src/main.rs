@@ -1,4 +1,4 @@
-use axum::{routing::get, Router};
+use axum::{middleware as axum_mw, routing::get, Router};
 use casbin::{CoreApi, Enforcer};
 use sqlx_adapter::SqlxAdapter;
 use std::sync::Arc;
@@ -8,6 +8,7 @@ use tracing_subscriber::EnvFilter;
 
 mod auth;
 mod error;
+mod middleware;
 mod routes;
 mod state;
 
@@ -30,8 +31,7 @@ async fn main() {
 
     let state = AppState { pool, enforcer };
 
-    let app = Router::new()
-        .route("/health", get(|| async { "ok" }))
+    let protected = Router::new()
         .route(
             "/api/projects",
             get(routes::projects::list).post(routes::projects::create),
@@ -42,6 +42,11 @@ async fn main() {
                 .patch(routes::projects::update)
                 .delete(routes::projects::delete),
         )
+        .route_layer(axum_mw::from_fn_with_state(state.clone(), middleware::casbin_auth));
+
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .merge(protected)
         .with_state(state)
         .layer(TraceLayer::new_for_http());
 
