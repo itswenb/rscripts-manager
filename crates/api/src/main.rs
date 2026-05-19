@@ -1,4 +1,8 @@
 use axum::{routing::get, Router};
+use casbin::{CoreApi, Enforcer};
+use sqlx_adapter::SqlxAdapter;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -19,7 +23,12 @@ async fn main() {
         .unwrap_or_else(|_| "postgres://rflow:rflow@localhost:5432/rflow".into());
 
     let pool = rflow_core::db::create_pool(&database_url).await;
-    let state = AppState { pool };
+
+    let adapter = SqlxAdapter::new(&database_url, 8).await.unwrap();
+    let enforcer = Enforcer::new("config/casbin_model.conf", adapter).await.unwrap();
+    let enforcer = Arc::new(RwLock::new(enforcer));
+
+    let state = AppState { pool, enforcer };
 
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
