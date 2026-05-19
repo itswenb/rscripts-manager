@@ -1,0 +1,4 @@
+p, admin, /api/*, GET
+p, admin, /api/*, POST
+p, admin, /api/*, PATCH
+p, admin, /api/*, DELETE
