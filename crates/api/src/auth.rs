@@ -1,6 +1,6 @@
 use axum::{
     extract::FromRequestParts,
-    http::{header, request::Parts, StatusCode},
+    http::{header, request::Parts},
 };
 use base64::Engine;
 use rflow_core::AppError;
