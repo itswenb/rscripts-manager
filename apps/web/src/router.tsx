@@ -4,6 +4,7 @@ import { LoginPage } from "@/pages/login";
 import { AuthenticatedLayout } from "@/pages/layout";
 import { ProjectsPage } from "@/pages/projects";
 import { ProjectDashboardPage } from "@/pages/project-dashboard";
+import { ProjectExplorerPage } from "@/pages/project-explorer";
 import { WorkflowStepsPage } from "@/pages/workflow-steps";
 
 const rootRoute = createRootRoute({
@@ -55,6 +56,12 @@ const projectDashboardRoute = createRoute({
   component: ProjectDashboardPage,
 });
 
+const projectExplorerRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/projects/$projectId/explorer",
+  component: ProjectExplorerPage,
+});
+
 const workflowStepsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/workflow-steps",
@@ -68,6 +75,7 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectDetailRoute,
     projectDashboardRoute,
+    projectExplorerRoute,
     workflowStepsRoute,
   ]),
 ]);
