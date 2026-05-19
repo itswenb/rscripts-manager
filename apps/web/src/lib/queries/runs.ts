@@ -37,6 +37,17 @@ export function useRuns(projectId: string) {
   });
 }
 
+export function useRun(projectId: string, runId: string) {
+  return useQuery({
+    queryKey: ["runs", projectId, runId],
+    queryFn: () => api.get<ScriptRun>(`/projects/${projectId}/runs/${runId}`),
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.status === "running" || data?.status === "pending" ? 2000 : false;
+    },
+  });
+}
+
 export function useCreateRun(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
