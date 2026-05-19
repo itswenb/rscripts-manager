@@ -10,4 +10,8 @@ pub enum AppError {
     Database(#[from] sqlx::Error),
     #[error("internal: {0}")]
     Internal(String),
+    #[error("unauthorized")]
+    Unauthorized,
+    #[error("forbidden")]
+    Forbidden,
 }

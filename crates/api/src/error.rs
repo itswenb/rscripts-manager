@@ -25,6 +25,8 @@ impl IntoResponse for ApiError {
             AppError::Validation(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "database error".to_string()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "unauthorized".to_string()),
+            AppError::Forbidden => (StatusCode::FORBIDDEN, "forbidden".to_string()),
         };
         (status, Json(json!({ "error": message }))).into_response()
     }
