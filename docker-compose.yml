@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-rflow}
+      POSTGRES_DB: ${POSTGRES_DB:-rflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
