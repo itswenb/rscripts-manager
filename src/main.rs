@@ -6,6 +6,7 @@ mod rparser;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use sqlx::sqlite::SqlitePoolOptions;
+use std::path::PathBuf;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
@@ -26,7 +27,7 @@ async fn main() {
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
     let port: u16 = std::env::var("PORT").expect("PORT must be set in .env").parse().expect("PORT must be a valid number");
-    let data_dir = std::env::var("DATA_DIR").expect("DATA_DIR must be set in .env");
+    let data_dir = expand_tilde(&std::env::var("DATA_DIR").expect("DATA_DIR must be set in .env"));
     std::fs::create_dir_all(&data_dir).expect("Failed to create data dir");
     std::fs::create_dir_all(format!("{data_dir}/scripts")).expect("Failed to create scripts dir");
     std::fs::create_dir_all(format!("{data_dir}/projects")).expect("Failed to create projects dir");
@@ -56,6 +57,20 @@ async fn main() {
 
     tracing::info!("RFlow running on http://0.0.0.0:{port}");
     axum::serve(listener, app).await.unwrap();
+}
+
+fn expand_tilde(path: &str) -> String {
+    if path == "~" {
+        return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
+    }
+
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home).join(rest).to_string_lossy().to_string();
+        }
+    }
+
+    path.to_string()
 }
 
 async fn init_admin(pool: &sqlx::SqlitePool) {

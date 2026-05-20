@@ -8,7 +8,7 @@
             <h1 class="text-[30px] font-bold text-on-surface leading-tight tracking-tight">脚本节点</h1>
             <p class="text-sm text-muted-text mt-1">管理所有可用的 R 脚本节点</p>
         </div>
-        <button onclick="document.getElementById('create-node-dialog').showModal()"
+        <button type="button" data-create-node
             class="bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap active:scale-95 duration-100">
             <i data-lucide="plus" class="w-4 h-4"></i>
             添加节点
@@ -55,9 +55,9 @@
 <dialog id="create-node-dialog" class="rounded-xl p-0 w-full max-w-lg backdrop:bg-black/30 border border-border shadow-lg">
     <div class="bg-surface-container-lowest rounded-xl">
         <div class="px-6 py-4 border-b border-border">
-            <h2 class="text-lg font-bold text-on-surface">添加脚本节点</h2>
+            <h2 id="node-dialog-title" class="text-lg font-bold text-on-surface">添加脚本节点</h2>
         </div>
-        <form hx-post="/pipelines" hx-target="#node-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); this.closest('dialog').close(); lucide.createIcons();" class="p-6 space-y-4">
+        <form id="node-dialog-form" hx-post="/pipelines" hx-target="#node-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); this.closest('dialog').close(); lucide.createIcons();" class="p-6 space-y-4">
             <div>
                 <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">节点名称</label>
                 <input type="text" name="name" required
@@ -106,7 +106,7 @@ threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" onclick="this.closest('dialog').close()"
                     class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
-                <button type="submit"
+                <button id="node-dialog-submit" type="submit"
                     class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">添加</button>
             </div>
         </form>
@@ -114,19 +114,15 @@ threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
 </dialog>
 <script>
 (function() {
-    let scripts = [];
     const dialog = document.getElementById('create-node-dialog');
     const select = document.getElementById('script-select');
     const meta = document.getElementById('script-meta');
     dialog.querySelector('input[name="name"]').addEventListener('input', function() { delete this.dataset.auto; });
 
-    dialog.addEventListener('show', loadScripts);
-    new MutationObserver(() => { if (dialog.open) loadScripts(); }).observe(dialog, {attributes: true});
-
     async function loadScripts() {
-        if (scripts.length) return;
         const res = await fetch('/pipelines/scripts');
-        scripts = await res.json();
+        const scripts = await res.json();
+        window.pipelineScripts = scripts;
         select.innerHTML = '<option value="">请选择脚本...</option>';
         if (!scripts.length) {
             select.innerHTML = '<option value="">~/.rflow/scripts/ 下无 .R 文件</option>';
@@ -141,6 +137,7 @@ threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
     }
 
     select.addEventListener('change', () => {
+        const scripts = window.pipelineScripts || [];
         const s = scripts.find(x => x.path === select.value);
         if (!s) { meta.classList.add('hidden'); document.getElementById('io-help').open = true; return; }
         meta.classList.remove('hidden');
@@ -173,45 +170,6 @@ threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
     });
 })();
 
-async function loadEditScripts(select, currentPath) {
-    const res = await fetch('/pipelines/scripts');
-    const scripts = await res.json();
-    select.innerHTML = '';
-    scripts.forEach(s => {
-        const opt = document.createElement('option');
-        opt.value = s.path;
-        opt.textContent = s.title ? `${s.filename} — ${s.title}` : s.filename;
-        if (s.path === currentPath) opt.selected = true;
-        select.appendChild(opt);
-    });
-}
 </script>
-
-<dialog id="edit-node-dialog" class="rounded-xl p-0 w-full max-w-lg backdrop:bg-black/30 border border-border shadow-lg">
-    <div class="bg-surface-container-lowest rounded-xl">
-        <div class="px-6 py-4 border-b border-border">
-            <h2 class="text-lg font-bold text-on-surface">编辑脚本节点</h2>
-        </div>
-        <form hx-put="/pipelines/_" hx-target="#node-list" hx-swap="innerHTML" hx-on::after-request="this.closest('dialog').close(); lucide.createIcons();" class="p-6 space-y-4">
-            <div>
-                <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">节点名称</label>
-                <input type="text" name="name" required
-                    class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
-            </div>
-            <div>
-                <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">选择 R 脚本</label>
-                <select name="script_path" id="edit-script-select" required
-                    class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
-                </select>
-            </div>
-            <div class="flex justify-end gap-2 pt-2">
-                <button type="button" onclick="this.closest('dialog').close()"
-                    class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
-                <button type="submit"
-                    class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">保存</button>
-            </div>
-        </form>
-    </div>
-</dialog>
 </div>
 {% endblock %}

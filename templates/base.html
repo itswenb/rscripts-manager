@@ -76,30 +76,76 @@
     <script>
         lucide.createIcons();
         document.body.addEventListener('htmx:afterSwap', function() { lucide.createIcons(); });
-        window.openEditDialog = async function(id, name, scriptPath) {
-            const dialog = document.getElementById('edit-node-dialog');
-            if (!dialog) return;
-
-            const form = dialog.querySelector('form');
-            form.setAttribute('hx-put', '/pipelines/' + id);
-            htmx.process(form);
-            form.querySelector('input[name="name"]').value = name;
-
-            const select = document.getElementById('edit-script-select');
+        window.populateNodeScriptSelect = async function(select, currentPath) {
             select.innerHTML = '<option value="">加载中...</option>';
             const res = await fetch('/pipelines/scripts');
             const scripts = await res.json();
-            select.innerHTML = '';
+            select.innerHTML = '<option value="">请选择脚本...</option>';
+            if (!scripts.length) {
+                select.innerHTML = '<option value="">~/.rflow/scripts/ 下无 .R 文件</option>';
+                return;
+            }
+            window.pipelineScripts = scripts;
             scripts.forEach(s => {
                 const opt = document.createElement('option');
                 opt.value = s.path;
                 opt.textContent = s.title ? `${s.filename} - ${s.title}` : s.filename;
-                if (s.path === scriptPath) opt.selected = true;
+                if (s.path === currentPath) opt.selected = true;
                 select.appendChild(opt);
             });
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+        window.openCreateNodeDialog = async function() {
+            const dialog = document.getElementById('create-node-dialog');
+            if (!dialog) return;
+
+            const form = dialog.querySelector('form');
+            form.reset();
+            form.removeAttribute('hx-put');
+            form.setAttribute('hx-post', '/pipelines');
+            htmx.process(form);
+            form.querySelector('input[name="name"]').value = '';
+            delete form.querySelector('input[name="name"]').dataset.auto;
+
+            const title = document.getElementById('node-dialog-title');
+            const submit = document.getElementById('node-dialog-submit');
+            if (title) title.textContent = '添加脚本节点';
+            if (submit) submit.textContent = '添加';
+
+            const meta = document.getElementById('script-meta');
+            const help = document.getElementById('io-help');
+            if (meta) meta.classList.add('hidden');
+            if (help) help.open = true;
+
+            await window.populateNodeScriptSelect(document.getElementById('script-select'), '');
 
             dialog.showModal();
         };
+        window.openEditDialog = async function(id, name, scriptPath) {
+            const dialog = document.getElementById('create-node-dialog');
+            if (!dialog) return;
+
+            const form = dialog.querySelector('form');
+            form.removeAttribute('hx-post');
+            form.setAttribute('hx-put', '/pipelines/' + id);
+            htmx.process(form);
+            form.querySelector('input[name="name"]').value = name;
+            delete form.querySelector('input[name="name"]').dataset.auto;
+
+            const title = document.getElementById('node-dialog-title');
+            const submit = document.getElementById('node-dialog-submit');
+            if (title) title.textContent = '编辑脚本节点';
+            if (submit) submit.textContent = '保存';
+
+            await window.populateNodeScriptSelect(document.getElementById('script-select'), scriptPath);
+
+            dialog.showModal();
+        };
+        document.body.addEventListener('click', function(event) {
+            const button = event.target.closest('[data-create-node]');
+            if (!button) return;
+            window.openCreateNodeDialog();
+        });
         document.body.addEventListener('click', function(event) {
             const button = event.target.closest('[data-edit-node]');
             if (!button) return;
