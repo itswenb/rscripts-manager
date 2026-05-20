@@ -1,15 +1,7 @@
-const CRED_KEY = "rflow_cred";
+import { useAppStore } from "@/store";
 
 export function getCredentials(): string | null {
-  return localStorage.getItem(CRED_KEY);
-}
-
-export function setCredentials(username: string, password: string): void {
-  localStorage.setItem(CRED_KEY, btoa(`${username}:${password}`));
-}
-
-export function clearCredentials(): void {
-  localStorage.removeItem(CRED_KEY);
+  return useAppStore.getState().credentials;
 }
 
 export function isAuthenticated(): boolean {

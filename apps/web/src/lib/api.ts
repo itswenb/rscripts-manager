@@ -1,4 +1,5 @@
-import { getCredentials, clearCredentials } from "./auth";
+import { getCredentials } from "./auth";
+import { useAppStore } from "@/store";
 
 const BASE_URL = "/api";
 
@@ -19,7 +20,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
 
   if (res.status === 401) {
-    clearCredentials();
+    useAppStore.getState().logout();
     window.location.href = "/login";
     throw new Error("Unauthorized");
   }

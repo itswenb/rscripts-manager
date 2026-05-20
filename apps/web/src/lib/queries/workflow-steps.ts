@@ -22,7 +22,7 @@ export function useWorkflowSteps() {
 export function useCreateWorkflowStep() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: { name: string; script_path: string; description?: string }) =>
+    mutationFn: (data: { name: string; script_path: string; description?: string; output_dir_name?: string; param_schema?: unknown[] }) =>
       api.post<WorkflowStep>("/workflow-steps", data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["workflow-steps"] }),
   });

@@ -7,7 +7,10 @@ import { ProjectDashboardPage } from "@/pages/project-dashboard";
 import { ProjectExplorerPage } from "@/pages/project-explorer";
 import { ProjectRunsPage } from "@/pages/project-runs";
 import { RunDetailPage } from "@/pages/run-detail";
-import { WorkflowStepsPage } from "@/pages/workflow-steps";
+import { PipelinesPage } from "@/pages/pipelines";
+import { FileManagerPage } from "@/pages/file-manager";
+import { UsersPage } from "@/pages/users";
+import { AuditLogPage } from "@/pages/audit-log";
 
 const rootRoute = createRootRoute({
   component: Outlet,
@@ -79,7 +82,33 @@ const runDetailRoute = createRoute({
 const workflowStepsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/workflow-steps",
-  component: WorkflowStepsPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/pipelines" });
+  },
+});
+
+const pipelinesRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/pipelines",
+  component: PipelinesPage,
+});
+
+const filesRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/files",
+  component: FileManagerPage,
+});
+
+const usersRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/users",
+  component: UsersPage,
+});
+
+const auditLogRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/audit-log",
+  component: AuditLogPage,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -93,6 +122,10 @@ const routeTree = rootRoute.addChildren([
     projectRunsRoute,
     runDetailRoute,
     workflowStepsRoute,
+    pipelinesRoute,
+    filesRoute,
+    usersRoute,
+    auditLogRoute,
   ]),
 ]);
 

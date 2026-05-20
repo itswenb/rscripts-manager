@@ -6,8 +6,10 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct FileAsset {
     pub id: Uuid,
-    pub project_id: Uuid,
+    pub project_id: Option<Uuid>,
     pub parent_id: Option<Uuid>,
+    pub owner_id: Option<Uuid>,
+    pub is_public: bool,
     pub name: String,
     pub is_directory: bool,
     pub size_bytes: i64,
@@ -28,4 +30,5 @@ pub struct CreateDirectory {
 pub struct MoveAsset {
     pub parent_id: Option<Uuid>,
     pub name: Option<String>,
+    pub is_public: Option<bool>,
 }

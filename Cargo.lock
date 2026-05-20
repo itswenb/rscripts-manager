@@ -1815,8 +1815,10 @@ dependencies = [
  "casbin",
  "jsonwebtoken",
  "mime_guess",
+ "rand_core",
  "reqwest",
  "rflow-core",
+ "rflow-rrunner",
  "serde",
  "serde_json",
  "sqlx",
@@ -1845,6 +1847,8 @@ dependencies = [
 name = "rflow-rrunner"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "tokio",
 ]
 
@@ -1852,6 +1856,7 @@ dependencies = [
 name = "rflow-worker"
 version = "0.1.0"
 dependencies = [
+ "mime_guess",
  "rflow-core",
  "rflow-rrunner",
  "serde_json",

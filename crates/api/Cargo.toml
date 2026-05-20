@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 rflow-core = { path = "../core" }
+rflow-rrunner = { path = "../rrunner" }
 axum.workspace = true
 tokio.workspace = true
 serde.workspace = true
@@ -22,6 +23,7 @@ base64.workspace = true
 jsonwebtoken.workspace = true
 tokio-util.workspace = true
 mime_guess.workspace = true
+rand_core = { version = "0.6", features = ["std"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }

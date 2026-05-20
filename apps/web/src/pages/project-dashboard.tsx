@@ -1,4 +1,5 @@
 import { useParams } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useProject } from "@/lib/queries/projects";
 import { useRuns } from "@/lib/queries/runs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +18,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function ProjectDashboardPage() {
+  const { t } = useTranslation();
   const { projectId } = useParams({ strict: false }) as { projectId: string };
   const { data: project } = useProject(projectId);
   const { data: runs } = useRuns(projectId);
@@ -45,44 +47,44 @@ export function ProjectDashboardPage() {
           <h1 className="text-lg font-semibold">{project?.name ?? "Project"}</h1>
           <Badge variant="outline">v1.0</Badge>
         </div>
-        <Button size="sm"><Play size={14} className="mr-1.5" />Add New Run</Button>
+        <Button size="sm"><Play size={14} className="mr-1.5" />{t("dashboard.addRun")}</Button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><CheckCircle size={13} />System Status</div>
-            <p className="text-lg font-semibold text-green-600">Operational</p>
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><CheckCircle size={13} />{t("dashboard.systemStatus")}</div>
+            <p className="text-lg font-semibold text-green-600">{t("dashboard.operational")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Activity size={13} />Active Workflows</div>
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><Activity size={13} />{t("dashboard.activeWorkflows")}</div>
             <p className="text-lg font-semibold">{activeWorkflows}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><AlertTriangle size={13} />Failed (24h)</div>
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><AlertTriangle size={13} />{t("dashboard.failedLast24h")}</div>
             <p className="text-lg font-semibold text-red-600">{failedLast24h}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><HardDrive size={13} />Total Runs</div>
+            <div className="flex items-center gap-2 text-muted-foreground text-xs mb-1"><HardDrive size={13} />{t("dashboard.totalRuns")}</div>
             <p className="text-lg font-semibold">{runs?.length ?? 0}</p>
           </CardContent>
         </Card>
       </div>
 
       <div className="flex gap-2">
-        <Button variant="outline" size="sm"><Play size={13} className="mr-1.5" />Start New Run</Button>
-        <Button variant="outline" size="sm"><Upload size={13} className="mr-1.5" />Upload Datasets</Button>
+        <Button variant="outline" size="sm"><Play size={13} className="mr-1.5" />{t("dashboard.startRun")}</Button>
+        <Button variant="outline" size="sm"><Upload size={13} className="mr-1.5" />{t("dashboard.uploadDatasets")}</Button>
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Runs (Last 7 Days)</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">{t("dashboard.runsLast7Days")}</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={200}>
               <LineChart data={chartData}>
@@ -96,7 +98,7 @@ export function ProjectDashboardPage() {
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm">Storage</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">{t("dashboard.storage")}</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <Progress value={35} />
             <p className="text-xs text-muted-foreground">3.5 GB of 10 GB used</p>
@@ -105,25 +107,25 @@ export function ProjectDashboardPage() {
       </div>
 
       <Card>
-        <CardHeader className="pb-2"><CardTitle className="text-sm">Recent Executions</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-sm">{t("dashboard.recentExecutions")}</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Run</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Duration</TableHead>
+                <TableHead>{t("runs.runId")}</TableHead>
+                <TableHead>{t("common.status")}</TableHead>
+                <TableHead>{t("runs.startedAt")}</TableHead>
+                <TableHead>{t("runs.duration")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {recentRuns.length === 0 && (
-                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">No runs yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">{t("dashboard.noRuns")}</TableCell></TableRow>
               )}
               {recentRuns.map(run => {
                 const duration = run.started_at && run.finished_at
                   ? `${Math.round((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000)}s`
-                  : run.status === "running" ? "Running..." : "—";
+                  : run.status === "running" ? t("runs.running") : "—";
                 return (
                   <TableRow key={run.id}>
                     <TableCell className="font-mono text-xs">{run.id.slice(0, 8)}</TableCell>

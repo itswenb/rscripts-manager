@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useProjects, useCreateProject, useDeleteProject } from "@/lib/queries/projects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ const STATUS_CONFIG = {
 } as const;
 
 export function ProjectsPage() {
+  const { t } = useTranslation();
   const { data: projects, isLoading } = useProjects();
   const createProject = useCreateProject();
   const deleteProject = useDeleteProject();
@@ -35,42 +37,42 @@ export function ProjectsPage() {
     setOpen(false);
   }
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Loading...</p>;
+  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">{t("common.loading")}</p>;
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Projects</h1>
+        <h1 className="text-lg font-semibold">{t("projects.title")}</h1>
         <Button size="sm" onClick={() => setOpen(true)}>
           <Plus size={14} className="mr-1.5" />
-          Add New Project
+          {t("projects.addNew")}
         </Button>
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>New Project</DialogTitle>
+            <DialogTitle>{t("projects.addNew")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleCreate} className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <Label htmlFor="proj-name">Name</Label>
+              <Label htmlFor="proj-name">{t("common.name")}</Label>
               <Input id="proj-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="proj-desc">Description</Label>
+              <Label htmlFor="proj-desc">{t("common.description")}</Label>
               <Textarea id="proj-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-              <Button type="submit" disabled={createProject.isPending || !name.trim()}>Create</Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
+              <Button type="submit" disabled={createProject.isPending || !name.trim()}>{t("common.create")}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
       {projects?.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground text-sm">No projects yet</div>
+        <div className="text-center py-12 text-muted-foreground text-sm">{t("projects.noProjects")}</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects?.map((p, i) => (
@@ -92,7 +94,7 @@ export function ProjectsPage() {
                         onClick={() => deleteProject.mutate(p.id)}
                       >
                         <Trash2 size={13} className="mr-2" />
-                        Delete
+                        {t("common.delete")}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>

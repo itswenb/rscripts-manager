@@ -1,6 +1,9 @@
 use std::path::Path;
 use tokio::process::Command;
 
+pub mod parser;
+pub use parser::{parse_script, ScriptMeta, PortDef, ParamDef};
+
 #[derive(Debug)]
 pub struct RunResult {
     pub success: bool,
@@ -13,20 +16,18 @@ pub async fn execute_script(
     script_path: &str,
     run_dir: &Path,
 ) -> Result<RunResult, std::io::Error> {
-    let inputs_path = run_dir.join("inputs.json");
-    let params_path = run_dir.join("params.json");
     let output_dir = run_dir.join("outputs");
-
     tokio::fs::create_dir_all(&output_dir).await?;
+
+    // Copy rflow.R helper if available
+    let helper_src = Path::new("templates/rflow.R");
+    if helper_src.exists() {
+        let _ = tokio::fs::copy(helper_src, run_dir.join("rflow.R")).await;
+    }
 
     let output = Command::new(rscript_path)
         .arg(script_path)
-        .arg("--inputs")
-        .arg(&inputs_path)
-        .arg("--params")
-        .arg(&params_path)
-        .arg("--output")
-        .arg(&output_dir)
+        .env("RFLOW_RUN_DIR", run_dir)
         .current_dir(run_dir)
         .output()
         .await?;

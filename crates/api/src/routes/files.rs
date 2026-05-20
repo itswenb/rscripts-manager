@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::error::ApiError;
+use crate::routes::audit;
 use crate::state::AppState;
 use rflow_core::models::{CreateDirectory, FileAsset, MoveAsset};
 use rflow_core::AppError;
@@ -21,7 +22,7 @@ pub async fn upload(
     State(state): State<AppState>,
     Path(project_id): Path<Uuid>,
     Query(params): Query<UploadParams>,
-    _auth: AuthUser,
+    auth: AuthUser,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<Vec<FileAsset>>), ApiError> {
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "./data".into());
@@ -85,6 +86,9 @@ pub async fn upload(
         assets.push(asset);
     }
 
+    for a in &assets {
+        audit::log(&state.pool, &auth, "upload", "file", Some(&a.id.to_string()), None).await;
+    }
     Ok((StatusCode::CREATED, Json(assets)))
 }
 
@@ -196,7 +200,7 @@ pub async fn move_asset(
 pub async fn delete(
     State(state): State<AppState>,
     Path((_project_id, asset_id)): Path<(Uuid, Uuid)>,
-    _auth: AuthUser,
+    auth: AuthUser,
 ) -> Result<StatusCode, ApiError> {
     let result = sqlx::query(
         "UPDATE file_assets SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL",
@@ -208,6 +212,7 @@ pub async fn delete(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound.into());
     }
+    audit::log(&state.pool, &auth, "delete", "file", Some(&asset_id.to_string()), None).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

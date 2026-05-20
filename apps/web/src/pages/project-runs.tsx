@@ -1,4 +1,5 @@
 import { useParams, Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useRuns } from "@/lib/queries/runs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -14,16 +15,17 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export function ProjectRunsPage() {
+  const { t } = useTranslation();
   const { projectId } = useParams({ strict: false }) as { projectId: string };
   const { data: runs, isLoading } = useRuns(projectId);
 
-  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">Loading...</p>;
+  if (isLoading) return <p className="p-6 text-sm text-muted-foreground">{t("common.loading")}</p>;
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Runs</h1>
-        <Button size="sm"><Play size={14} className="mr-1.5" />New Run</Button>
+        <h1 className="text-lg font-semibold">{t("runs.title")}</h1>
+        <Button size="sm"><Play size={14} className="mr-1.5" />{t("runs.startRun")}</Button>
       </div>
 
       <Card>
@@ -31,15 +33,15 @@ export function ProjectRunsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Run ID</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Started</TableHead>
-                <TableHead>Duration</TableHead>
+                <TableHead>{t("runs.runId")}</TableHead>
+                <TableHead>{t("common.status")}</TableHead>
+                <TableHead>{t("runs.startedAt")}</TableHead>
+                <TableHead>{t("runs.duration")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {(!runs || runs.length === 0) && (
-                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">No runs yet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">{t("runs.noRuns")}</TableCell></TableRow>
               )}
               {runs?.map(run => {
                 const duration = run.started_at && run.finished_at

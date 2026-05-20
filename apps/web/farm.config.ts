@@ -1,8 +1,10 @@
 import { defineConfig } from "@farmfe/core";
+import postcss from "@farmfe/js-plugin-postcss";
+import react from "@farmfe/plugin-react";
 import path from "path";
 
 export default defineConfig({
-  plugins: ["@farmfe/plugin-react"],
+  plugins: [react(), postcss()],
   compilation: {
     resolve: {
       alias: {

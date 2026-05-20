@@ -1,5 +1,6 @@
 import { useState, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { useFiles, useUploadFiles, useCreateDirectory, useDeleteFile, FileAsset } from "@/lib/queries/files";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,19 +31,20 @@ function DirectoryTree({ projectId, selectedId, onSelect }: {
   selectedId: string | null;
   onSelect: (id: string | null, name: string) => void;
 }) {
+  const { t } = useTranslation();
   const { data: rootFiles } = useFiles(projectId, null);
   const directories = rootFiles?.filter(f => f.is_directory) ?? [];
 
   return (
     <div className="space-y-0.5">
       <button
-        onClick={() => onSelect(null, "Root")}
+        onClick={() => onSelect(null, t("files.root"))}
         className={cn(
           "flex items-center gap-2 px-2 py-1.5 rounded text-sm w-full text-left",
           selectedId === null ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-accent/50"
         )}
       >
-        <FolderOpen size={14} /> Root
+        <FolderOpen size={14} /> {t("files.root")}
       </button>
       {directories.map(dir => (
         <button
@@ -60,8 +62,10 @@ function DirectoryTree({ projectId, selectedId, onSelect }: {
   );
 }
 
-export function ProjectExplorerPage() {
-  const { projectId } = useParams({ strict: false }) as { projectId: string };
+export function ProjectExplorerPage({ overrideProjectId }: { overrideProjectId?: string } = {}) {
+  const { t } = useTranslation();
+  const params = useParams({ strict: false }) as { projectId?: string };
+  const projectId = overrideProjectId ?? params.projectId!;
   const [selectedDir, setSelectedDir] = useState<{ id: string | null; name: string }>({ id: null, name: "Root" });
   const [dirDialogOpen, setDirDialogOpen] = useState(false);
   const [dirName, setDirName] = useState("");
@@ -89,13 +93,13 @@ export function ProjectExplorerPage() {
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">
       <aside className="w-56 border-r p-3 overflow-auto shrink-0">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-2">Directories</p>
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-2">{t("files.folder")}</p>
         <DirectoryTree projectId={projectId} selectedId={selectedDir.id} onSelect={(id, name) => setSelectedDir({ id, name })} />
       </aside>
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <div className="flex items-center gap-1 text-sm text-muted-foreground">
-            <button onClick={() => setSelectedDir({ id: null, name: "Root" })} className="hover:text-foreground">Root</button>
+            <button onClick={() => setSelectedDir({ id: null, name: t("files.root") })} className="hover:text-foreground">{t("files.root")}</button>
             {selectedDir.id && (
               <>
                 <ChevronRight size={12} />
@@ -106,25 +110,25 @@ export function ProjectExplorerPage() {
           <div className="flex gap-2">
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
             <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadFiles.isPending}>
-              <Upload size={13} className="mr-1.5" />Upload
+              <Upload size={13} className="mr-1.5" />{t("files.upload")}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setDirDialogOpen(true)}>
-              <Folder size={13} className="mr-1.5" />New Folder
+              <Folder size={13} className="mr-1.5" />{t("files.newFolder")}
             </Button>
           </div>
         </div>
 
         <Dialog open={dirDialogOpen} onOpenChange={setDirDialogOpen}>
           <DialogContent className="max-w-sm">
-            <DialogHeader><DialogTitle>New Folder</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{t("files.newFolder")}</DialogTitle></DialogHeader>
             <form onSubmit={handleCreateDir} className="space-y-4 pt-2">
               <div className="space-y-1.5">
-                <Label htmlFor="dir-name">Folder Name</Label>
+                <Label htmlFor="dir-name">{t("common.name")}</Label>
                 <Input id="dir-name" value={dirName} onChange={(e) => setDirName(e.target.value)} autoFocus />
               </div>
               <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDirDialogOpen(false)}>Cancel</Button>
-                <Button type="submit" disabled={!dirName.trim()}>Create</Button>
+                <Button type="button" variant="outline" onClick={() => setDirDialogOpen(false)}>{t("common.cancel")}</Button>
+                <Button type="submit" disabled={!dirName.trim()}>{t("common.create")}</Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -132,21 +136,21 @@ export function ProjectExplorerPage() {
 
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <p className="p-4 text-sm text-muted-foreground">Loading...</p>
+            <p className="p-4 text-sm text-muted-foreground">{t("common.loading")}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead className="w-24">Type</TableHead>
-                  <TableHead className="w-24">Size</TableHead>
-                  <TableHead className="w-36">Modified</TableHead>
+                  <TableHead>{t("files.fileName")}</TableHead>
+                  <TableHead className="w-24">{t("files.type")}</TableHead>
+                  <TableHead className="w-24">{t("files.size")}</TableHead>
+                  <TableHead className="w-36">{t("files.modified")}</TableHead>
                   <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {files?.length === 0 && (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Empty directory</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">{t("files.noFiles")}</TableCell></TableRow>
                 )}
                 {files?.map(f => {
                   const Icon = f.is_directory ? Folder : getFileIcon(f.name);
@@ -162,7 +166,7 @@ export function ProjectExplorerPage() {
                           <span className="flex items-center gap-2"><Icon size={14} className="text-muted-foreground" />{f.name}</span>
                         )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">{f.is_directory ? "Folder" : ext}</TableCell>
+                      <TableCell className="text-muted-foreground text-xs">{f.is_directory ? t("files.folder") : ext}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">{f.is_directory ? "—" : formatBytes(f.size_bytes)}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">{new Date(f.created_at).toLocaleDateString()}</TableCell>
                       <TableCell>

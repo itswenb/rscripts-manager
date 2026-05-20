@@ -27,6 +27,12 @@ fn default_role() -> String {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UpdateUser {
+    pub password: Option<String>,
+    pub role: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,

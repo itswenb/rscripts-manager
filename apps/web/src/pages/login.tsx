@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { setCredentials } from "@/lib/auth";
+import { useTranslation } from "react-i18next";
+import { useAppStore } from "@/store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +9,8 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+  const login = useAppStore((s) => s.login);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -23,13 +26,13 @@ export function LoginPage() {
         headers: { Authorization: `Basic ${cred}` },
       });
       if (res.status === 401) {
-        setError("Invalid credentials");
+        setError(t("auth.loginFailed"));
         return;
       }
-      setCredentials(username, password);
+      login(username, password);
       navigate({ to: "/" });
     } catch {
-      setError("Connection failed");
+      setError(t("auth.loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -47,7 +50,7 @@ export function LoginPage() {
               <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-md">{error}</p>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="username">{t("auth.username")}</Label>
               <Input
                 id="username"
                 type="text"
@@ -57,7 +60,7 @@ export function LoginPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">{t("auth.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -66,7 +69,7 @@ export function LoginPage() {
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Logging in..." : "Login"}
+              {loading ? t("common.loading") : t("auth.login")}
             </Button>
           </form>
         </CardContent>

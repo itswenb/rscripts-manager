@@ -2,7 +2,9 @@ use axum::extract::{Path, Query, State};
 use axum::Json;
 use uuid::Uuid;
 
+use crate::auth::AuthUser;
 use crate::error::ApiError;
+use crate::routes::audit;
 use crate::state::AppState;
 use rflow_core::models::{CreateProject, PaginationParams, Project, UpdateProject};
 use rflow_core::AppError;
@@ -25,6 +27,7 @@ pub async fn list(
 
 pub async fn create(
     State(state): State<AppState>,
+    auth_user: AuthUser,
     Json(input): Json<CreateProject>,
 ) -> Result<(axum::http::StatusCode, Json<Project>), ApiError> {
     if input.name.trim().is_empty() {
@@ -37,6 +40,7 @@ pub async fn create(
     .bind(&input.description)
     .fetch_one(&state.pool)
     .await?;
+    audit::log(&state.pool, &auth_user, "create", "project", Some(&project.id.to_string()), None).await;
     Ok((axum::http::StatusCode::CREATED, Json(project)))
 }
 
@@ -56,6 +60,7 @@ pub async fn get(
 
 pub async fn update(
     State(state): State<AppState>,
+    auth_user: AuthUser,
     Path(id): Path<Uuid>,
     Json(input): Json<UpdateProject>,
 ) -> Result<Json<Project>, ApiError> {
@@ -78,11 +83,13 @@ pub async fn update(
     .bind(id)
     .fetch_one(&state.pool)
     .await?;
+    audit::log(&state.pool, &auth_user, "update", "project", Some(&id.to_string()), None).await;
     Ok(Json(project))
 }
 
 pub async fn delete(
     State(state): State<AppState>,
+    auth_user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<axum::http::StatusCode, ApiError> {
     let result = sqlx::query("DELETE FROM projects WHERE id = $1")
@@ -92,5 +99,6 @@ pub async fn delete(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound.into());
     }
+    audit::log(&state.pool, &auth_user, "delete", "project", Some(&id.to_string()), None).await;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
