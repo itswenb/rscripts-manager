@@ -2,177 +2,88 @@
 
 ## Project Overview
 
-RFlow is an internal web-based analysis workbench for bioinformatics and data-analysis teams.
+RFlow 是部署在 HPC 登录节点上的 R 脚本脚本节点管理平台。
 
-The system is designed to replace fragmented workflows based on:
+单体 Rust 应用，服务端渲染，通过 Slurm 调度 R 脚本到计算节点执行。
 
-- SSH
-- FinalShell
-- manual file upload/download
-- shell scripts
-- local result inspection
-- repeated parameter tuning
-
-with a structured browser-based workflow.
-
-RFlow is NOT an online IDE.
-
-RFlow is NOT a notebook system.
-
-RFlow is NOT intended to replace RStudio.
-
-The purpose of the system is:
-
-> Turn server-side R analysis workflows into a manageable, traceable, interactive web platform.
+面向生物信息学研究人员，解决传统 SSH + 手动执行 + 本地查看结果的低效工作流。
 
 ---
 
-# Core Workflow Philosophy
+## Core Workflow Philosophy
 
-Traditional workflow:
+用户工作流：
 
-1. Upload data to server
-2. SSH into server
-3. Run partial R scripts
-4. Download generated plots
-5. Inspect locally
-6. Modify parameters
-7. Re-run next step
-8. Repeat many times
+1. 在"脚本节点"页面管理 R 脚本节点（每个节点 = 一个 R 脚本 + 注解定义的参数/输入/输出）
+2. 在"项目"中将节点串联成分析流程
+3. 配置参数，选择输入文件
+4. 执行脚本节点，通过 Slurm 提交到计算节点
+5. 实时查看运行状态、日志、输出结果
+6. 可暂停/回退/重跑任意节点
 
-RFlow transforms this into:
-
-1. Upload/manage files in browser
-2. Select analysis step
-3. Configure parameters
-4. Execute R scripts
-5. View logs and generated plots directly in browser
-6. Adjust parameters
-7. Continue workflow
-
-The system is specifically designed for:
-
-- iterative parameter tuning
-- step-by-step exploratory workflows
-- large datasets that cannot run locally
-- human-in-the-loop analysis
-
-This is NOT a fixed pipeline runner.
+核心理念：**人控制流程，机器执行计算。**
 
 ---
 
-# Design Principles
+## Architecture
 
-## 1. Human-Controlled Workflow
-
-The platform must preserve researcher control.
-
-Do NOT automate away the workflow into a black-box pipeline.
-
-Each step should remain inspectable and configurable.
+- 单体应用，非前后端分离
+- Axum + Askama + HTMX + Tailwind CSS + SQLite
+- 单二进制部署，零外部依赖
+- 通过 SSH 隧道访问
 
 ---
 
-## 2. R Scripts Are First-Class Citizens
+## Design Principles
 
-The platform wraps existing R workflows.
+### 1. 单二进制，零配置部署
 
-The system does NOT attempt to replace:
+不依赖 Node.js、PostgreSQL、Redis、Docker。scp 一个文件即可运行。
 
-- R
-- RStudio
-- Bioconductor ecosystems
+### 2. R 脚本是核心
 
-R scripts remain the execution source of truth.
+平台围绕 R 脚本构建。脚本通过注解声明接口，平台自动解析。
 
----
+### 3. Slurm 原生集成
 
-## 3. File-Centric Architecture
+计算任务通过 sbatch 提交，不在登录节点执行任何重计算。
 
-Files are critical assets.
+### 4. 人在回路
 
-Every uploaded/generated file must be:
+每个节点可独立控制。失败自动暂停。支持回退重跑。不做黑盒自动化。
 
-- tracked
-- version-aware
-- auditable
-- permission-controlled
+### 5. 文件即数据
 
-No anonymous filesystem mutations.
+直接操作文件系统，不做额外抽象层。输入输出都是文件路径。
 
 ---
 
-## 4. Secure Execution
+## AI Guidance
 
-Users must NEVER execute arbitrary shell commands.
+生成代码时：
 
-R scripts must be pre-registered by administrators.
-
-Execution must occur through structured JSON inputs.
-
----
-
-## 5. Reproducibility
-
-Every run must preserve:
-
-- input files
-- parameters
-- logs
-- outputs
-- execution timestamps
-
-Runs must be reproducible.
+- 使用 Askama 模板 + HTMX 属性实现交互，不引入 JS 框架
+- Tailwind CSS 写样式，保持 UI 简洁专业
+- SQLite 存储，使用 sqlx 的 compile-time checked queries
+- 所有路由在 Axum 中定义，返回 HTML 或 HTMX 片段
+- 文件操作直接使用 tokio::fs，限制在配置的根目录内
+- Slurm 交互通过 tokio::process::Command 调用 sbatch/sacct/scancel
 
 ---
 
-## 6. Large File Awareness
+## Forbidden
 
-The platform is designed for large bioinformatics datasets.
-
-Avoid designs assuming:
-
-- small uploads
-- browser-only processing
-- local-first architecture
-
-The server is the compute source of truth.
-
----
-
-# AI Guidance
-
-When generating code for this project:
-
-- prioritize maintainability over abstraction
-- avoid overengineering
-- avoid premature microservice decomposition
-- avoid Kubernetes-specific assumptions
-- avoid hidden magic
-- prefer explicit schemas and typed contracts
-- prefer filesystem transparency
-- preserve debuggability
+- 前后端分离架构
+- JavaScript 框架（React, Vue, Svelte）
+- 外部数据库服务（PostgreSQL, MySQL）
+- 容器编排（Docker, K8s）
+- 多用户权限系统
+- 在登录节点直接执行 R 脚本
+- 动态 shell 命令拼接（防注入）
+- 自动化决策（AI 自动调参、自动重试）
 
 ---
 
-# Forbidden Architectural Decisions
+## Required Reading
 
-Do NOT introduce:
-
-- dynamic shell execution
-- user-defined arbitrary scripts
-- hidden runtime mutation
-- browser-side execution of analysis
-- opaque workflow engines
-- automatic AI-driven parameter mutation
-- tightly coupled monolith state managers
-
----
-
-# Required Reading
-
-Before modifying architecture or major workflows, read:
-
-- DESIGN.md
-
-DESIGN.md is the authoritative technical specification.
+修改架构前必读：DESIGN.md

@@ -1,0 +1,18 @@
+{% for log in logs %}
+<div class="bg-surface-container-lowest border border-border rounded-lg px-4 py-3 flex items-center gap-4 text-sm">
+    <span class="text-xs text-muted-text font-mono w-36 shrink-0">{{ log.created_at }}</span>
+    <span class="font-medium text-on-surface w-20 shrink-0">{{ log.user }}</span>
+    <span class="px-2 py-0.5 rounded bg-primary-container text-on-primary-container text-xs font-semibold">{{ log.action }}</span>
+    <span class="text-secondary truncate">{{ log.target }}</span>
+    {% if !log.detail.is_empty() %}
+    <span class="text-muted-text truncate ml-auto">{{ log.detail }}</span>
+    {% endif %}
+</div>
+{% endfor %}
+
+{% if logs.is_empty() %}
+<div class="text-center py-12 text-muted-text">
+    <i data-lucide="scroll-text" class="w-12 h-12 mx-auto mb-4 opacity-50"></i>
+    <p class="text-lg font-medium">暂无日志</p>
+</div>
+{% endif %}

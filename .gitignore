@@ -5,12 +5,16 @@ target/
 node_modules/
 dist/
 dist-ssr/
+package-lock.json
 
 # Environment
 .env
 
 # Data
 data/
+rflow.db
+rflow.db-shm
+rflow.db-wal
 
 # Logs
 *.log

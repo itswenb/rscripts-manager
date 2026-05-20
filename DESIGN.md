@@ -1,340 +1,201 @@
-# Technical Stack
+# Technical Design
 
-## Backend
+## Architecture
 
-- Rust
-- Axum
-- Tokio
-- SQLx
-- PostgreSQL
-
-## Frontend
-
-- React
-- TypeScript
-- Farm
-- TailwindCSS
-- shadcn/ui
-- TanStack Query
-- TanStack Router
-- TanStack Table
-
-## Runtime
-
-- R
-- Rscript
-- renv
-
-## Environment
-
-- mise
-- pnpm
-
-## Infrastructure
-
-- PostgreSQL
-- Redis (optional future queue backend)
-- Linux filesystem storage
-
----
-
-# High-Level Architecture
+单体 Rust 应用，服务端渲染，单二进制部署。
 
 ```text
-Browser
+浏览器 (SSH 隧道)
   ↓
-React Frontend
-  ↓
-Axum API
-  ↓
-PostgreSQL
-  ↓
-Background Worker
-  ↓
-Rscript Execution
-  ↓
-Generated Outputs
-````
-
----
-
-# Monorepo Structure
-
-```text
-rflow/
-├── .mise.toml
-├── Cargo.toml
-├── crates/
-│   ├── api/
-│   ├── worker/
-│   ├── core/
-│   └── rrunner/
-├── apps/
-│   └── web/
-├── migrations/
-├── scripts/
-│   └── r/
-├── data/
-└── docker-compose.yml
+Axum HTTP Server
+  ├── Askama 模板渲染 HTML
+  ├── HTMX 处理交互（表单提交、局部刷新、状态轮询）
+  ├── SQLite 数据持久化
+  └── Slurm Worker（sbatch 提交 + sacct 轮询）
+        ↓
+      HPC 计算节点执行 R 脚本
+        ↓
+      共享文件系统读写结果
 ```
 
 ---
 
-# Core Data Model
+## 技术栈
 
-## Project
-
-Logical workspace boundary.
-
-Represents:
-
-* experiment
-* analysis workspace
-* research dataset grouping
-
-Each project owns:
-
-* uploaded files
-* generated outputs
-* analysis runs
+| 层 | 技术 |
+|----|------|
+| HTTP 框架 | Axum + Tokio |
+| 模板引擎 | Askama |
+| 前端交互 | HTMX |
+| 样式 | Tailwind CSS（构建时编译为静态 CSS） |
+| 数据库 | SQLite（通过 sqlx） |
+| 计算调度 | Slurm CLI（sbatch, sacct, scancel） |
+| R 执行 | Rscript（在计算节点上） |
 
 ---
 
-## FileAsset
+## 数据模型
 
-Tracks every file and directory.
+### Project
 
-Supports:
+分析项目，包含脚本节点实例和运行历史。
 
-* upload
-* move
-* rename
-* delete
-* download
-* preview
+字段：id, name, description, created_at
 
-Files are never treated as anonymous paths.
+### PipelineNode
 
-All filesystem state must exist in database state.
+可复用的脚本节点定义。每个节点绑定一个 R 脚本。
 
----
+字段：id, name, script_path, params_schema(json), inputs_schema(json), outputs_schema(json), created_at
 
-## WorkflowStep
+通过解析 R 脚本注解自动填充 schema。
 
-Defines a registered analysis step.
+### ProjectFlow
 
-Includes:
+项目中的脚本节点实例，由多个节点按顺序串联。
 
-* script path
-* input schema
-* parameter schema
-* output expectations
+字段：id, project_id, name, created_at
 
-Workflow steps are administrator-defined.
+### ProjectFlowStep
 
-Users cannot execute arbitrary scripts.
+脚本节点中的一个步骤，引用一个 PipelineNode。
 
----
+字段：id, flow_id, node_id, step_order, param_values(json)
 
-## ScriptRun
+### FlowRun
 
-Represents one execution instance.
+一次脚本节点执行。
 
-Contains:
+字段：id, flow_id, status(pending/running/paused/completed/failed), current_step, created_at, started_at, finished_at
 
-* selected inputs
-* parameter values
-* execution state
-* stdout/stderr
-* timing metadata
+### StepRun
 
-Every run must be reproducible.
+单个步骤的执行记录。
+
+字段：id, flow_run_id, step_order, status, slurm_job_id, stdout, stderr, started_at, finished_at
 
 ---
 
-## OutputFile
+## 文件管理
 
-Represents generated outputs.
+直接操作用户 home 目录下的文件系统，不使用数据库跟踪文件。
 
-Includes:
+操作：
+- 列出目录内容（ls）
+- 上传文件（multipart）
+- 下载文件
+- 创建目录
+- 删除文件/目录
+- 重命名
 
-* plots
-* CSV
-* TSV
-* PDF
-* HTML
-* logs
-
-Outputs belong to ScriptRuns.
+根目录限制为 `$HOME` 或配置的 `data-dir`，防止路径穿越。
 
 ---
 
-# File System Layout
+## R 脚本注解规范
 
-```text
-/data/rflow/
-├── projects/
-│   └── project_001/
-│       ├── uploads/
-│       ├── workspace/
-│       ├── runs/
-│       └── trash/
-├── scripts/
-└── shared/
+```r
+#' @title DEG Analysis
+#' @description Differential expression using DESeq2
+#' @param method character "DESeq2" Analysis method
+#' @param pvalue_cutoff number 0.05 P-value threshold
+#' @input counts_matrix.csv Raw count matrix
+#' @output deg_results.csv Results table
+#' @output volcano_plot.png Volcano plot
 ```
 
+解析后生成节点的 params/inputs/outputs schema。
+
 ---
 
-# Execution Model
+## Slurm 集成
 
-Every execution creates:
-
-```text
-run_dir/
-├── inputs.json
-├── params.json
-├── outputs/
-├── stdout.log
-└── stderr.log
-```
-
-R scripts are executed using:
+### 提交作业
 
 ```bash
-Rscript script.R \
-  --inputs inputs.json \
-  --params params.json \
-  --output outputs/
+sbatch --job-name=rflow_{run_id}_{step} \
+       --output={run_dir}/stdout.log \
+       --error={run_dir}/stderr.log \
+       --wrap="cd {run_dir} && Rscript {script_path}"
+```
+
+### 状态轮询
+
+```bash
+sacct -j {job_id} --format=State --noheader --parsable2
+```
+
+### 取消作业
+
+```bash
+scancel {job_id}
 ```
 
 ---
 
-# Security Rules
+## 脚本节点执行逻辑
 
-## Forbidden
-
-* arbitrary shell execution
-* arbitrary script uploads
-* unrestricted filesystem access
-* direct path injection
-* direct shell interpolation
-
-## Required
-
-* administrator-approved scripts
-* typed input schemas
-* structured parameter validation
-* filesystem sandboxing
-* permission-aware file access
-* activity logging
+1. 用户点击"执行"→ 创建 FlowRun，状态 running
+2. Worker 按 step_order 依次提交作业
+3. 每个步骤：写 params.json + inputs.json → sbatch → 轮询状态
+4. 步骤完成后，outputs 目录内容作为下一步的 inputs
+5. 步骤失败 → FlowRun 状态变为 paused，等待用户操作
+6. 用户点击"暂停" → scancel 当前作业，FlowRun 状态变为 paused
+7. 用户点击已执行的步骤 → 回退：删除该步骤及之后的 StepRun 记录，重置 current_step
+8. 用户点击"继续" → 从 current_step 恢复执行
 
 ---
 
-# Queueing Strategy
+## 页面结构
 
-Initial implementation:
-
-* PostgreSQL-backed jobs
-* Tokio workers
-
-Future optional upgrade:
-
-* Redis queue backend
-
-Do NOT introduce distributed orchestration early.
+| 路径 | 页面 | 说明 |
+|------|------|------|
+| `/login` | 登录 | 管理员密码 |
+| `/projects` | 项目列表 | 创建/删除项目 |
+| `/projects/{id}` | 项目详情 | 脚本节点配置 + 运行控制 |
+| `/pipelines` | 节点管理 | 管理所有可用的 R 脚本节点 |
+| `/files` | 文件管理 | 浏览/上传/下载文件 |
 
 ---
 
-# Frontend Architecture
+## HTMX 交互模式
 
-## State Management
-
-Prefer:
-
-* TanStack Query
-* local component state
-
-Avoid:
-
-* oversized global stores
-* Redux-style complexity
+- 表单提交：`hx-post` + `hx-target` 局部替换
+- 状态轮询：`hx-trigger="every 2s"` 轮询运行状态
+- 节点操作：`hx-post="/flows/{id}/steps/{n}/start"` 触发单步执行
+- 文件浏览：`hx-get="/files?path=..."` 目录导航
 
 ---
 
-## UI Philosophy
+## 认证
 
-The UI is an internal operations interface.
+单用户模式。启动时通过环境变量或配置文件设置管理员密码。
 
-Priorities:
-
-* clarity
-* traceability
-* debuggability
-* fast navigation
-
-NOT marketing aesthetics.
+Cookie-based session，无需 JWT 或 OAuth。
 
 ---
 
-# API Philosophy
+## 构建与部署
 
-Prefer:
+```bash
+# 构建 Tailwind CSS
+npx tailwindcss -i static/input.css -o static/style.css --minify
 
-* explicit typed contracts
-* schema-driven validation
-* predictable endpoints
+# 构建 Rust 二进制（静态链接，适配 Linux）
+cargo build --release --target x86_64-unknown-linux-gnu
 
-Avoid:
-
-* magic serialization
-* hidden implicit behaviors
-* auto-generated runtime mutations
-
----
-
-# File Management Constraints
-
-Files may be:
-
-* very large
-* deeply nested
-* shared between steps
-
-Design accordingly.
-
-Avoid assumptions of:
-
-* browser-memory-safe processing
-* instant uploads
-* synchronous transfers
+# 部署
+scp target/release/rflow user@login-node:~/
+ssh user@login-node "./rflow --port 9000"
+```
 
 ---
 
-# AI Integration Philosophy
+## 非目标
 
-AI is NOT the workflow controller.
-
-AI may later assist with:
-
-* result interpretation
-* parameter suggestions
-* report generation
-
-AI must NOT:
-
-* mutate execution state automatically
-* execute arbitrary commands
-* bypass permission systems
-
----
-
-# Non-Goals
-
-This project is NOT:
-
-* a notebook platform
-* a generic workflow engine
-* a cloud IDE
-* a Kubernetes orchestration layer
-* a distributed compute scheduler
-* a Jupyter replacement
+- 多用户权限系统
+- 前后端分离
+- 容器化部署
+- 分布式调度
+- Notebook 执行
+- 实时协作

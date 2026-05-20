@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}审计日志{% endblock %}
+{% block content %}
+<div id="page-content" class="flex-1 flex flex-col overflow-hidden">
+<div class="flex-1 overflow-y-auto p-4 md:p-6 bg-background">
+    <div class="mb-6">
+        <h1 class="text-[30px] font-bold text-on-surface leading-tight tracking-tight">审计日志</h1>
+        <p class="text-sm text-muted-text mt-1">系统操作记录</p>
+    </div>
+
+    <div id="audit-list" class="space-y-2">
+        {% include "fragments/audit_list.html" %}
+    </div>
+</div>
+</div>
+{% endblock %}

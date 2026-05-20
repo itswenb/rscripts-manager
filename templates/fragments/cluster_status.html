@@ -1,0 +1,27 @@
+<div class="flex items-center gap-3 text-xs">
+    {% if status.reachable %}
+    {% if status.down > 0 %}
+    <span class="flex items-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-destructive"></span>
+        <span class="text-secondary">{{ status.down }}台离线</span>
+    </span>
+    {% endif %}
+    {% if status.alloc > 0 %}
+    <span class="flex items-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-warning"></span>
+        <span class="text-secondary">{{ status.alloc }}台忙碌</span>
+    </span>
+    {% endif %}
+    {% if status.idle > 0 %}
+    <span class="flex items-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-success"></span>
+        <span class="text-secondary">{{ status.idle }}台空闲</span>
+    </span>
+    {% endif %}
+    {% else %}
+    <span class="flex items-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-primary"></span>
+        <span class="text-secondary">本机模式</span>
+    </span>
+    {% endif %}
+</div>

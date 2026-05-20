@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}文件{% endblock %}
+{% block content %}
+<div id="page-content" class="flex-1 flex flex-col overflow-hidden">
+<div class="flex-1 flex overflow-hidden relative" id="file-page">
+    <!-- Drop Overlay -->
+    <div id="drop-overlay" class="hidden absolute inset-0 z-50 bg-primary/10 border-2 border-dashed border-primary rounded-lg flex items-center justify-center pointer-events-none">
+        <div class="text-center">
+            <i data-lucide="upload-cloud" class="w-12 h-12 text-primary mx-auto mb-2"></i>
+            <p class="text-lg font-semibold text-primary">拖放文件到此处上传</p>
+        </div>
+    </div>
+
+    <!-- Upload Progress -->
+    <div id="upload-progress" class="hidden absolute bottom-12 right-4 z-50 w-80 bg-surface-container-lowest border border-border rounded-xl shadow-lg p-4">
+        <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-semibold text-on-surface">上传中</span>
+            <span id="upload-pct" class="text-xs font-mono text-secondary">0%</span>
+        </div>
+        <div class="w-full bg-surface-container-high rounded-full h-1.5 overflow-hidden">
+            <div id="upload-bar" class="bg-primary h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div id="upload-filename" class="text-xs text-muted-text mt-1.5 truncate"></div>
+    </div>
+
+    <!-- Directory Tree Pane -->
+    <aside class="w-64 border-r border-outline-variant bg-surface flex flex-col shrink-0 hidden lg:flex">
+        <div class="p-3 border-b border-outline-variant flex items-center justify-between">
+            <span class="text-[11px] font-bold tracking-wider text-secondary uppercase">目录</span>
+            <button hx-post="/files/mkdir" hx-vals='{"path": "{{ current_path }}", "name": "new_folder"}' hx-target="#file-content" hx-swap="innerHTML"
+                class="w-6 h-6 flex items-center justify-center rounded text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors">
+                <i data-lucide="folder-plus" class="w-4 h-4"></i>
+            </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-2">
+            <ul class="space-y-[2px]">
+                {% for dir in directories %}
+                <li>
+                    <a hx-get="/files?path={{ dir.path }}" hx-target="#file-content" hx-swap="innerHTML" hx-push-url="true"
+                       class="w-full flex items-center gap-2 px-2 py-1 rounded text-sm transition-colors cursor-pointer {% if dir.path == current_path %}bg-surface-container-low text-on-surface font-medium{% else %}text-on-surface hover:bg-surface-container-low{% endif %}">
+                        {% if dir.name == "scripts" %}
+                        <i data-lucide="file-code-2" class="w-4 h-4 text-primary"></i>
+                        {% elif dir.name == "projects" %}
+                        <i data-lucide="folder-kanban" class="w-4 h-4 text-primary"></i>
+                        {% elif dir.name == "data" %}
+                        <i data-lucide="database" class="w-4 h-4 text-primary"></i>
+                        {% else %}
+                        <i data-lucide="{% if dir.path == current_path %}folder-open{% else %}folder{% endif %}" class="w-4 h-4 {% if dir.path == current_path %}text-primary{% else %}text-secondary{% endif %}"></i>
+                        {% endif %}
+                        <span>{{ dir.name }}/</span>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </aside>
+
+    <!-- File Table Pane -->
+    <main id="file-content" class="flex-1 flex flex-col min-w-0 bg-background">
+        {% include "fragments/file_table.html" %}
+    </main>
+</div>
+
+<!-- File Preview/Editor Modal -->
+<dialog id="file-modal" class="rounded-xl p-0 w-[90vw] h-[80vh] max-w-5xl backdrop:bg-black/40 border border-border shadow-xl">
+    <div class="bg-surface-container-lowest rounded-xl flex flex-col h-full">
+        <div class="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
+            <h2 id="modal-title" class="text-sm font-semibold text-on-surface truncate"></h2>
+            <div class="flex items-center gap-2">
+                <button id="modal-save" class="hidden px-3 py-1.5 bg-primary text-on-primary text-sm font-semibold rounded-lg hover:bg-primary-fixed-variant transition-colors">保存</button>
+                <button onclick="document.getElementById('file-modal').close()" class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">关闭</button>
+            </div>
+        </div>
+        <div id="modal-body" class="flex-1 overflow-hidden relative">
+            <img id="modal-image" class="hidden max-w-full max-h-full object-contain m-auto p-4">
+            <iframe id="modal-pdf" class="hidden w-full h-full border-0" title="PDF 预览"></iframe>
+            <div id="editor-wrap" class="w-full h-full"></div>
+            <div id="modal-unsupported" class="hidden flex items-center justify-center h-full text-muted-text">
+                <p>此文件类型不支持预览</p>
+            </div>
+        </div>
+    </div>
+</dialog>
+<script src="/static/files.js"></script>
+</div>
+{% endblock %}

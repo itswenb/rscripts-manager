@@ -1,0 +1,731 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }}{% endblock %}
+{% block content %}
+<div id="page-content" class="flex-1 flex flex-col overflow-hidden">
+    <link rel="stylesheet" href="/static/style.css?v=20260520-terminal">
+    <!-- Toolbar -->
+    <div id="toolbar" class="h-12 border-b border-outline-variant bg-surface-container-lowest flex items-center justify-between px-4 shrink-0">
+        <div class="flex items-center gap-3">
+            <a href="/projects" class="text-secondary hover:text-on-surface transition-colors">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i>
+            </a>
+            <h1 class="text-sm font-bold text-on-surface">{{ project.name }}</h1>
+            <span class="text-xs text-muted-text">{{ project.description }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="relative">
+                <button id="add-node-btn" onclick="document.getElementById('add-node-menu').classList.toggle('hidden')"
+                    class="h-8 px-3 rounded-lg border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
+                    <i data-lucide="plus" class="w-4 h-4"></i> 添加节点
+                </button>
+                <div id="add-node-menu" class="hidden absolute top-full right-0 mt-1 w-72 bg-surface-container-lowest border border-border rounded-lg shadow-lg z-50 py-1 max-h-80 overflow-y-auto">
+                    <div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-text">数据源</div>
+                    <button onclick="addDataSourceNode(); document.getElementById('add-node-menu').classList.add('hidden')"
+                        class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-container-low transition-colors flex items-center gap-2">
+                        <i data-lucide="database" class="w-3.5 h-3.5 text-primary"></i> 文件数据源
+                    </button>
+                    <button onclick="addConstantNode(); document.getElementById('add-node-menu').classList.add('hidden')"
+                        class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-container-low transition-colors flex items-center gap-2">
+                        <i data-lucide="text-cursor-input" class="w-3.5 h-3.5 text-primary"></i> 固定值
+                    </button>
+                    <button onclick="addPreviewNode(); document.getElementById('add-node-menu').classList.add('hidden')"
+                        class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-container-low transition-colors flex items-center gap-2">
+                        <i data-lucide="eye" class="w-3.5 h-3.5 text-primary"></i> 预览
+                    </button>
+                    <div class="border-t border-border my-1"></div>
+                    <div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-text">脚本节点</div>
+                    <div id="script-node-list"></div>
+                </div>
+            </div>
+            <button onclick="saveGraph()" class="h-8 px-3 rounded-lg border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
+                <i data-lucide="save" class="w-4 h-4"></i> 保存
+            </button>
+            <button onclick="runAll()" id="run-btn" class="h-8 px-3 rounded-lg bg-primary text-on-primary transition-colors flex items-center gap-1.5 text-sm font-semibold">
+                <i data-lucide="play" class="w-4 h-4"></i> 运行
+            </button>
+            <button onclick="cancelRun()" id="cancel-btn" disabled class="h-8 px-3 rounded-lg bg-error-container text-on-error-container transition-colors flex items-center gap-1.5 text-sm font-semibold opacity-50">
+                <i data-lucide="square" class="w-4 h-4"></i> 取消
+            </button>
+        </div>
+    </div>
+
+    <!-- LiteGraph Canvas -->
+    <div id="graph-container" class="flex-1 relative overflow-hidden">
+        <canvas id="graph-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;image-rendering:auto;"></canvas>
+        <!-- Node Info Panel -->
+        <div id="node-info-panel" class="hidden absolute top-3 right-3 w-72 bg-surface-container-lowest/95 backdrop-blur border border-border rounded-xl shadow-lg z-40 overflow-hidden">
+            <div class="px-4 py-2.5 border-b border-border bg-surface-container-low/50">
+                <h3 id="node-info-title" class="text-sm font-bold text-on-surface truncate"></h3>
+                <p id="node-info-file" class="text-[11px] text-muted-text font-mono truncate mt-0.5"></p>
+            </div>
+            <div class="p-3 space-y-2 max-h-64 overflow-y-auto text-xs">
+                <div id="node-info-inputs"></div>
+                <div id="node-info-outputs"></div>
+            </div>
+        </div>
+        <!-- Floating Terminal -->
+        <div id="terminal-panel" class="fixed right-4 bottom-4 z-40 w-[800px] max-w-[calc(100vw-2rem)] rounded-xl border border-border shadow-lg overflow-hidden bg-surface-container-lowest transition-all duration-200">
+            <div onclick="toggleTerminal()" class="flex items-center justify-between px-4 py-2 bg-surface-container-low cursor-pointer select-none">
+                <span class="text-xs font-bold text-on-surface flex items-center gap-1.5"><i data-lucide="terminal" class="w-3.5 h-3.5"></i> 运行日志</span>
+                <i data-lucide="chevron-down" id="terminal-toggle-icon" class="w-4 h-4 text-secondary"></i>
+            </div>
+            <pre id="terminal-content" class="hidden h-[400px] w-full max-w-full box-border overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all p-3 text-xs font-mono text-on-surface bg-surface-container-lowest"></pre>
+        </div>
+    </div>
+</div>
+
+<!-- Output Viewer Dialog -->
+<dialog id="output-dialog" class="rounded-xl p-0 w-full max-w-lg backdrop:bg-black/30 border border-border shadow-lg">
+    <div class="bg-surface-container-lowest rounded-xl">
+        <div class="px-6 py-4 border-b border-border flex items-center justify-between">
+            <h2 class="text-sm font-bold text-on-surface">节点输出</h2>
+            <button onclick="this.closest('dialog').close()" class="text-secondary hover:text-on-surface"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div id="output-content" class="p-4 max-h-80 overflow-y-auto text-sm"></div>
+    </div>
+</dialog>
+
+<!-- File Picker Dialog -->
+<dialog id="file-picker-dialog" class="rounded-xl p-0 w-full max-w-md backdrop:bg-black/30 border border-border shadow-lg">
+    <div class="bg-surface-container-lowest rounded-xl">
+        <div class="px-6 py-4 border-b border-border flex items-center justify-between">
+            <h2 class="text-sm font-bold text-on-surface">选择数据文件</h2>
+            <button onclick="this.closest('dialog').close()" class="text-secondary hover:text-on-surface"><i data-lucide="x" class="w-4 h-4"></i></button>
+        </div>
+        <div id="file-picker-content" class="p-4 max-h-80 overflow-y-auto text-sm"></div>
+    </div>
+</dialog>
+
+{% endblock %}
+
+{% block scripts %}
+<link rel="stylesheet" href="/static/vendor/litegraph/litegraph.css">
+<style>
+.lgraphcanvas { background-color: #f8f9fa !important; }
+.litegraph .litecontextmenu { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.litegraph .litecontextmenu .litemenu-entry { color: #1c1b1f; }
+.litegraph .litecontextmenu .litemenu-entry:hover { background: #f3f0ff; }
+.litegraph .litecontextmenu .separator { border-color: #e0e0e0; }
+</style>
+<script src="/static/vendor/litegraph/litegraph.min.js"></script>
+<script>
+const PROJECT_ID = "{{ project.id }}";
+let graph = new LGraph();
+let canvas;
+let availableScripts = [];
+let saveTimeout = null;
+const TYPE_COLORS = {
+    file: "#6750a4", table: "#1565c0", image: "#e65100",
+    pdf: "#c62828", rdata: "#6a1b9a", string: "#546e7a", numeric: "#00838f", boolean: "#4e342e",
+};
+
+// Localize LiteGraph context menu
+const _zhMap = {"Add Node":"添加节点","Add Group":"添加分组","Align":"对齐","Collapse All":"全部折叠","Expand All":"全部展开","Title":"标题","Clone":"克隆","Remove":"删除","Inputs":"输入","Outputs":"输出","Properties":"属性","Collapse":"折叠","Pin":"固定","Colors":"颜色","Shapes":"形状","Resize":"调整大小","Mode":"模式","Align Selected To":"对齐选中到"};
+const _origContextMenu = LiteGraph.ContextMenu;
+function PatchedContextMenu(values, options) {
+    if (values && Array.isArray(values)) {
+        values.forEach(v => {
+            if (v && typeof v === 'object' && v.content && _zhMap[v.content]) { v.content = _zhMap[v.content]; }
+        });
+    }
+    _origContextMenu.call(this, values, options);
+}
+PatchedContextMenu.prototype = _origContextMenu.prototype;
+LiteGraph.ContextMenu = PatchedContextMenu;
+
+// Custom node menu
+const _origNodeMenu = LGraphCanvas.prototype.getNodeMenuOptions;
+LGraphCanvas.prototype.getNodeMenuOptions = function(node) {
+    const opts = _origNodeMenu.call(this, node);
+    if (node.type !== 'datasource/File') {
+        opts.unshift(null);
+        opts.unshift({content: "查看输出", callback: () => viewNodeOutput(node)});
+        opts.unshift({content: "执行此节点", callback: () => runSingleNode(node)});
+    }
+    return opts;
+};
+
+// --- Init ---
+async function initGraph() {
+    const container = document.getElementById('graph-container');
+    const canvasEl = document.getElementById('graph-canvas');
+
+    canvas = new LGraphCanvas(canvasEl, graph);
+    canvas.background_image = null;
+    canvas.clear_background_color = "#f8f9fa";
+    canvas.render_canvas_border = false;
+    canvas.highquality_render = true;
+    canvas.node_title_color = "#1c1b1f";
+    LiteGraph.NODE_DEFAULT_COLOR = "#ffffff";
+    LiteGraph.NODE_DEFAULT_BGCOLOR = "#ffffff";
+    LiteGraph.NODE_DEFAULT_BOXCOLOR = "#6750a4";
+    LiteGraph.NODE_TEXT_COLOR = "#1c1b1f";
+    LiteGraph.WIDGET_BGCOLOR = "#f0f0f3";
+    LiteGraph.WIDGET_OUTLINE_COLOR = "#c4c7c5";
+    LiteGraph.WIDGET_TEXT_COLOR = "#1c1b1f";
+    LiteGraph.NODE_SELECTED_TITLE_COLOR = "#1c1b1f";
+    LiteGraph.LINK_COLOR = "#6750a4";
+    LiteGraph.DEFAULT_SHADOW_COLOR = "rgba(0,0,0,0.08)";
+
+    Object.entries(TYPE_COLORS).forEach(([type, color]) => {
+        LGraphCanvas.link_type_colors[type] = color;
+    });
+
+    function resizeHiDPI() {
+        const dpr = window.devicePixelRatio || 1;
+        const rect = container.getBoundingClientRect();
+        canvasEl.style.width = rect.width + 'px';
+        canvasEl.style.height = rect.height + 'px';
+        canvasEl.width = Math.floor(rect.width * dpr);
+        canvasEl.height = Math.floor(rect.height * dpr);
+        if (canvas.bgcanvas && canvas.bgcanvas !== canvasEl) {
+            canvas.bgcanvas.width = canvasEl.width;
+            canvas.bgcanvas.height = canvasEl.height;
+        }
+        canvas.resize();
+        canvas.setDirty(true, true);
+    }
+
+    resizeHiDPI();
+    window.addEventListener('resize', resizeHiDPI);
+
+    await registerNodeTypes();
+    await loadGraph();
+    graph.config = graph.config || {};
+    graph.config.links_ontop = true;
+    graph.start();
+
+    // Pulse animation for running nodes
+    const _origDrawNode = LGraphCanvas.prototype.drawNode;
+    LGraphCanvas.prototype.drawNode = function(node, ctx) {
+        if (node._running) {
+            const t = (Math.sin(performance.now() / 400) + 1) / 2;
+            const r = Math.round(13 + t * (66 - 13));
+            const g = Math.round(71 + t * (165 - 71));
+            const b = Math.round(161 + t * (245 - 161));
+            node.color = `rgb(${r},${g},${b})`;
+            this.setDirty(true);
+        }
+        _origDrawNode.call(this, node, ctx);
+    };
+
+    // Node info panel
+    canvas.onNodeSelected = function(node) {
+        const panel = document.getElementById('node-info-panel');
+        if (!node || !node._scriptMeta) { panel.classList.add('hidden'); return; }
+        const meta = node._scriptMeta;
+        document.getElementById('node-info-title').textContent = meta.title || meta.filename;
+        document.getElementById('node-info-file').textContent = meta.filename;
+        let inputsHtml = '';
+        if (meta.inputs.length) {
+            inputsHtml = '<div class="font-semibold text-secondary mb-1">输入</div>' +
+                meta.inputs.map(i => `<div class="flex justify-between py-0.5"><span class="text-on-surface">${i.name}</span><span class="text-muted-text font-mono">${i.type || 'file'}</span></div>`).join('');
+        }
+        let outputsHtml = '';
+        if (meta.outputs.length) {
+            outputsHtml = '<div class="font-semibold text-secondary mb-1 mt-2">输出</div>' +
+                meta.outputs.map(o => `<div class="flex justify-between py-0.5"><span class="text-on-surface">${o.name}</span><span class="text-muted-text font-mono">${o.type || 'file'}</span></div>`).join('');
+        }
+        document.getElementById('node-info-inputs').innerHTML = inputsHtml;
+        document.getElementById('node-info-outputs').innerHTML = outputsHtml;
+        panel.classList.remove('hidden');
+    };
+    canvas.onNodeDeselected = function() {
+        document.getElementById('node-info-panel').classList.add('hidden');
+    };
+
+    graph.onAfterChange = () => {
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(saveGraph, 2000);
+    };
+}
+
+// --- Register Node Types ---
+async function registerNodeTypes() {
+    const res = await fetch('/pipelines/registered');
+    availableScripts = await res.json();
+
+    // DataSource node
+    function DataSourceNode() {
+        this.addOutput("file", "file");
+        this.properties = { file_path: "", output_type: "file" };
+        this.size = [220, 100];
+        this.title = "数据源";
+        const self = this;
+        const fileTypes = ["file","table","image","pdf","rdata"];
+        this.addWidget("combo", "类型", "file", (v) => {
+            self.properties.output_type = v;
+            self.outputs[0].type = v;
+            self.outputs[0].name = v;
+            self.outputs[0].color_on = TYPE_COLORS[v];
+            self.outputs[0].color_off = TYPE_COLORS[v];
+            self.setDirtyCanvas(true);
+        }, { values: fileTypes });
+        this.outputs[0].color_on = TYPE_COLORS["file"];
+        this.outputs[0].color_off = TYPE_COLORS["file"];
+    }
+    DataSourceNode.prototype.onDblClick = function() { openFilePicker(this); };
+    DataSourceNode.prototype.onDrawForeground = function(ctx) {
+        if (this.properties.file_path) {
+            ctx.font = "11px monospace";
+            ctx.fillStyle = "#aaa";
+            const name = this.properties.file_path.split('/').pop();
+            ctx.fillText(name, 10, this.size[1] - 8);
+        }
+    };
+    DataSourceNode.prototype.onExecute = function() {
+        this.setOutputData(0, this.properties.file_path);
+    };
+    LiteGraph.registerNodeType("datasource/File", DataSourceNode);
+
+    // Constant value node
+    function ConstantNode() {
+        this.addOutput("value", "string");
+        this.properties = { value: "", type: "string" };
+        this.size = [220, 100];
+        this.title = "固定值";
+        const self = this;
+        const types = ["string","numeric","boolean"];
+        this.addWidget("combo", "类型", "string", (v) => {
+            self.properties.type = v;
+            self.outputs[0].type = v;
+            self.outputs[0].color_on = TYPE_COLORS[v];
+            self.outputs[0].color_off = TYPE_COLORS[v];
+            self.setDirtyCanvas(true);
+        }, { values: types });
+        this.addWidget("text", "值", "", (v) => { self.properties.value = v; });
+    }
+    ConstantNode.prototype.onExecute = function() {
+        this.setOutputData(0, this.properties.value);
+    };
+    LiteGraph.registerNodeType("constant/Value", ConstantNode);
+
+    // Preview viewer node
+    function PreviewNode() {
+        this.addInput("image", "image");
+        this.addInput("pdf", "pdf");
+        this.inputs[0].color_on = TYPE_COLORS["image"];
+        this.inputs[0].color_off = TYPE_COLORS["image"];
+        this.inputs[1].color_on = TYPE_COLORS["pdf"];
+        this.inputs[1].color_off = TYPE_COLORS["pdf"];
+        this.properties = { current: 0, files: [] };
+        this.size = [320, 260];
+        this.title = "预览";
+        this._img = null;
+    }
+    PreviewNode.prototype.onExecute = function() {};
+    PreviewNode.prototype.onDrawForeground = function(ctx) {
+        const files = this.properties.files;
+        if (!files.length) {
+            ctx.font = "12px sans-serif";
+            ctx.fillStyle = "#888";
+            ctx.textAlign = "center";
+            ctx.fillText("连接输出节点后运行查看结果", this.size[0]/2, this.size[1]/2);
+            ctx.textAlign = "left";
+            return;
+        }
+        const idx = this.properties.current;
+        const file = files[idx];
+        // Navigation bar
+        ctx.fillStyle = "#f0f0f3";
+        ctx.fillRect(0, 0, this.size[0], 24);
+        ctx.font = "11px sans-serif";
+        ctx.fillStyle = "#1c1b1f";
+        ctx.fillText((idx+1) + "/" + files.length + "  " + file, 30, 16);
+        // Arrows
+        ctx.fillStyle = "#6750a4";
+        ctx.font = "16px sans-serif";
+        ctx.fillText("◀", 4, 18);
+        ctx.fillText("▶", this.size[0] - 18, 18);
+        // Image content
+        if (this._img && this._img._src === file) {
+            const iw = this._img.width, ih = this._img.height;
+            const scale = Math.min((this.size[0]-8)/(iw||1), (this.size[1]-32)/(ih||1), 1);
+            const dw = iw*scale, dh = ih*scale;
+            ctx.drawImage(this._img, (this.size[0]-dw)/2, 26 + ((this.size[1]-28-dh)/2), dw, dh);
+        } else if (file && (file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg') || file.endsWith('.svg'))) {
+            this._loadImage(file);
+        } else if (file && file.endsWith('.pdf')) {
+            ctx.font = "11px sans-serif";
+            ctx.fillStyle = "#888";
+            ctx.textAlign = "center";
+            ctx.fillText("PDF: " + file, this.size[0]/2, this.size[1]/2);
+            ctx.fillText("双击打开", this.size[0]/2, this.size[1]/2 + 16);
+            ctx.textAlign = "left";
+        }
+    };
+    PreviewNode.prototype._getConnectedSource = function() {
+        const scriptNodes = graph._nodes.filter(n => n.type !== 'datasource/File' && n.type !== 'constant/Value' && n.type !== 'viewer/Preview');
+        scriptNodes.sort((a, b) => a.id - b.id);
+        for (let i = 0; i < this.inputs.length; i++) {
+            const link = this.inputs[i].link;
+            if (link == null) continue;
+            const linkObj = graph.links[link];
+            if (!linkObj) continue;
+            const srcNode = graph.getNodeById(linkObj.origin_id);
+            if (!srcNode) continue;
+            const srcIdx = scriptNodes.indexOf(srcNode);
+            if (srcIdx < 0) continue;
+            return { key: srcIdx + '_' + (srcNode.title || 'node') };
+        }
+        return null;
+    };
+    PreviewNode.prototype._loadImage = function(file) {
+        const self = this;
+        const src = this._getConnectedSource();
+        if (!src) return;
+        const img = new Image();
+        img._src = file;
+        img.onload = () => { self._img = img; self.setDirtyCanvas(true); };
+        img.src = `/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}/${encodeURIComponent(file)}`;
+    };
+    PreviewNode.prototype.onDblClick = function() {
+        const files = this.properties.files;
+        if (!files.length) return;
+        const file = files[this.properties.current];
+        if (!file) return;
+        const src = this._getConnectedSource();
+        if (!src) return;
+        window.open(`/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}/${encodeURIComponent(file)}`, '_blank');
+    };
+    PreviewNode.prototype.onMouseDown = function(e, localPos) {
+        if (localPos[1] < 24 && this.properties.files.length > 1) {
+            if (localPos[0] < 24) {
+                this.properties.current = (this.properties.current - 1 + this.properties.files.length) % this.properties.files.length;
+                this._img = null;
+                this.setDirtyCanvas(true);
+                return true;
+            } else if (localPos[0] > this.size[0] - 24) {
+                this.properties.current = (this.properties.current + 1) % this.properties.files.length;
+                this._img = null;
+                this.setDirtyCanvas(true);
+                return true;
+            }
+        }
+    };
+    PreviewNode.prototype.loadOutputFiles = async function() {
+        const src = this._getConnectedSource();
+        if (!src) return;
+        const res = await fetch(`/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}`);
+        const data = await res.json();
+        const viewable = data.files.filter(f => /\.(png|jpg|jpeg|svg|pdf)$/i.test(f));
+        this.properties.files = viewable;
+        this.properties.current = 0;
+        this._img = null;
+        this.setDirtyCanvas(true);
+    };
+    PreviewNode.prototype.onConnectionsChange = function() {
+        this.loadOutputFiles();
+    };
+    LiteGraph.registerNodeType("viewer/Preview", PreviewNode);
+
+    // Script nodes
+    const listEl = document.getElementById('script-node-list');
+    availableScripts.forEach(script => {
+        const typeName = "script/" + script.filename.replace(/\.[rR]$/, '');
+
+        function ScriptNode() {
+            script.inputs.forEach(inp => {
+                const t = inp.type || "file";
+                this.addInput(inp.name + " :" + t, t);
+                const slot = this.inputs[this.inputs.length - 1];
+                slot.color_on = TYPE_COLORS[t];
+                slot.color_off = TYPE_COLORS[t];
+            });
+            script.outputs.forEach(out => {
+                const t = out.type || "file";
+                this.addOutput(out.name + " :" + t, t);
+                const slot = this.outputs[this.outputs.length - 1];
+                slot.color_on = TYPE_COLORS[t];
+                slot.color_off = TYPE_COLORS[t];
+            });
+            this.properties = { script_path: script.path, defaults: {} };
+            script.inputs.forEach(i => { if (i.default) this.properties.defaults[i.name] = i.default; });
+            this.title = script.title || script.filename;
+            const titleWidth = Math.max(220, this.title.length * 14 + 20);
+            this.size = [titleWidth, Math.max(80, (script.inputs.length + script.outputs.length) * 24 + 40)];
+            this._scriptMeta = script;
+        }
+        ScriptNode.prototype.onExecute = function() {
+            script.outputs.forEach((out, i) => this.setOutputData(i, out.name));
+        };
+        ScriptNode.prototype.onGetInputs = function() { return []; };
+        LiteGraph.registerNodeType(typeName, ScriptNode);
+
+        // Add to menu
+        const btn = document.createElement('button');
+        btn.className = 'w-full text-left px-3 py-1.5 text-sm hover:bg-surface-container-low transition-colors';
+        const ioInfo = [];
+        if (script.inputs.length) ioInfo.push(script.inputs.map(i => `${i.name}:${i.type||'file'}`).join(', '));
+        if (script.outputs.length) ioInfo.push('→ ' + script.outputs.map(o => `${o.name}:${o.type||'file'}`).join(', '));
+        btn.innerHTML = `<div class="flex items-center gap-2"><i data-lucide="file-code-2" class="w-3.5 h-3.5 text-secondary shrink-0"></i><div><div>${script.title || script.filename}</div>${ioInfo.length ? `<div class="text-[10px] text-muted-text font-mono mt-0.5">${ioInfo.join(' ')}</div>` : ''}</div></div>`;
+        btn.onclick = () => { addScriptNode(typeName); document.getElementById('add-node-menu').classList.add('hidden'); };
+        listEl.appendChild(btn);
+    });
+    lucide.createIcons();
+}
+
+// --- Add Nodes ---
+function getGraphCenter() {
+    const cx = canvas.canvas.width / 2;
+    const cy = canvas.canvas.height / 2;
+    return canvas.convertCanvasToOffset([cx, cy]);
+}
+
+function addDataSourceNode() {
+    const node = LiteGraph.createNode("datasource/File");
+    const [x, y] = getGraphCenter();
+    node.pos = [x - 100, y - 30];
+    graph.add(node);
+}
+
+function addConstantNode() {
+    const node = LiteGraph.createNode("constant/Value");
+    const [x, y] = getGraphCenter();
+    node.pos = [x - 100, y - 30];
+    graph.add(node);
+}
+
+function addPreviewNode() {
+    const node = LiteGraph.createNode("viewer/Preview");
+    const [x, y] = getGraphCenter();
+    node.pos = [x - 100, y - 30];
+    graph.add(node);
+}
+
+function addScriptNode(typeName) {
+    const node = LiteGraph.createNode(typeName);
+    const [x, y] = getGraphCenter();
+    node.pos = [x - 100, y - 40];
+    graph.add(node);
+}
+
+// --- File Picker ---
+async function openFilePicker(node) {
+    const dialog = document.getElementById('file-picker-dialog');
+    const content = document.getElementById('file-picker-content');
+    content.innerHTML = '<div class="text-muted-text">加载中...</div>';
+    dialog.showModal();
+
+    const res = await fetch('/files?path=data');
+    const html = await res.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const rows = doc.querySelectorAll('table tbody tr');
+
+    let items = '';
+    rows.forEach(row => {
+        const nameEl = row.querySelector('td:nth-child(2) a');
+        if (!nameEl) return;
+        const name = nameEl.textContent.trim();
+        if (name.endsWith('/')) return;
+        items += `<button class="w-full text-left px-3 py-2 hover:bg-surface-container-low rounded transition-colors flex items-center gap-2" onclick="selectFile(this, '${name}')"><i data-lucide="file" class="w-4 h-4 text-secondary"></i>${name}</button>`;
+    });
+    content.innerHTML = items || '<div class="text-muted-text">data/ 目录下无文件</div>';
+    lucide.createIcons();
+
+    window._pickerNode = node;
+}
+
+function selectFile(el, filename) {
+    const node = window._pickerNode;
+    if (node) {
+        node.properties.file_path = 'data/' + filename;
+        node.title = "数据源: " + filename;
+        // Auto-detect output type from extension
+        const ext = filename.split('.').pop().toLowerCase();
+        const extMap = {csv:'table',tsv:'table',xls:'table',xlsx:'table',png:'image',jpg:'image',jpeg:'image',svg:'image',pdf:'pdf',rds:'rdata',rdata:'rdata'};
+        const t = extMap[ext] || 'file';
+        node.properties.output_type = t;
+        node.outputs[0].type = t;
+        node.outputs[0].name = t;
+        node.outputs[0].color_on = TYPE_COLORS[t];
+        node.outputs[0].color_off = TYPE_COLORS[t];
+        // Update combo widget
+        if (node.widgets && node.widgets[0]) node.widgets[0].value = t;
+        canvas.setDirty(true, true);
+    }
+    document.getElementById('file-picker-dialog').close();
+}
+
+// --- Save/Load ---
+async function saveGraph() {
+    const data = graph.serialize();
+    await fetch(`/projects/${PROJECT_ID}/flow`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({graph_data: data})
+    });
+}
+
+async function loadGraph() {
+    const res = await fetch(`/projects/${PROJECT_ID}/flow`);
+    const data = await res.json();
+    if (data && data.nodes) {
+        graph.configure(data);
+    }
+}
+
+// --- Run ---
+function setRunning(running) {
+    const runBtn = document.getElementById('run-btn');
+    const cancelBtn = document.getElementById('cancel-btn');
+    const toolbar = document.getElementById('toolbar');
+    runBtn.disabled = running;
+    cancelBtn.disabled = !running;
+    runBtn.classList.toggle('opacity-50', running);
+    cancelBtn.classList.toggle('opacity-50', !running);
+    cancelBtn.classList.toggle('opacity-100', running);
+    toolbar.classList.remove('bg-error-container');
+}
+
+function showRunResult(status) {
+    const toolbar = document.getElementById('toolbar');
+    if (status === 'failed') {
+        toolbar.classList.add('bg-error-container');
+        alert('运行失败，请检查日志');
+    } else if (status === 'completed') {
+        alert('运行完成');
+    }
+    fetchLogs();
+}
+
+function toggleTerminal() {
+    const content = document.getElementById('terminal-content');
+    const icon = document.getElementById('terminal-toggle-icon');
+    content.classList.toggle('hidden');
+    icon.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
+}
+function expandTerminal() {
+    const content = document.getElementById('terminal-content');
+    const icon = document.getElementById('terminal-toggle-icon');
+    content.classList.remove('hidden');
+    icon.style.transform = 'rotate(180deg)';
+}
+function collapseTerminal() {
+    const content = document.getElementById('terminal-content');
+    const icon = document.getElementById('terminal-toggle-icon');
+    content.classList.add('hidden');
+    icon.style.transform = '';
+}
+async function fetchLogs() {
+    const res = await fetch(`/projects/${PROJECT_ID}/run-logs`);
+    if (!res.ok) return;
+    const data = await res.json();
+    const el = document.getElementById('terminal-content');
+    el.textContent = data.logs || '暂无日志';
+    el.scrollTop = el.scrollHeight;
+}
+
+async function runAll() {
+    await saveGraph();
+    const res = await fetch(`/projects/${PROJECT_ID}/run`, { method: 'POST' });
+    if (!res.ok) { alert('启动运行失败'); return; }
+    const data = await res.json();
+    if (data.ok) {
+        setRunning(true);
+        expandTerminal();
+        document.getElementById('terminal-content').textContent = '运行中...';
+        pollStatus();
+    } else {
+        alert(data.error || '启动运行失败');
+    }
+}
+
+async function cancelRun() {
+    await fetch(`/projects/${PROJECT_ID}/cancel`, { method: 'POST' });
+    setRunning(false);
+}
+
+let pollInterval = null;
+function pollStatus() {
+    if (pollInterval) return;
+    pollInterval = setInterval(async () => {
+        const res = await fetch(`/projects/${PROJECT_ID}/run-status`);
+        const data = await res.json();
+        updateNodeColors(data);
+        fetchLogs();
+        if (data.status !== 'running') {
+            clearInterval(pollInterval);
+            pollInterval = null;
+            setRunning(false);
+            showRunResult(data.status);
+        }
+    }, 2000);
+}
+
+function updateNodeColors(statusData) {
+    if (!statusData.steps) return;
+    const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
+    const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
+    scriptNodes.sort((a, b) => a.id - b.id);
+    statusData.steps.forEach(step => {
+        const node = scriptNodes[step.step_order];
+        if (!node) return;
+        if (step.status === 'completed') { node.color = '#1b5e20'; node._running = false; }
+        else if (step.status === 'running') { node.color = '#0d47a1'; node._running = true; }
+        else if (step.status === 'failed') { node.color = '#b71c1c'; node._running = false; }
+        else { node.color = null; node._running = false; }
+    });
+    canvas.setDirty(true, true);
+}
+
+// --- Context Menu ---
+LiteGraph.ContextMenu.prototype; // ensure loaded
+const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
+LGraphCanvas.prototype.getNodeMenuOptions = function(node) {
+    const options = origGetNodeMenuOptions.call(this, node);
+    if (node.type !== 'datasource/File') {
+        options.unshift({
+            content: "查看输出",
+            callback: () => viewNodeOutput(node)
+        });
+        options.unshift({
+            content: "执行此节点",
+            callback: () => runSingleNode(node)
+        });
+    }
+    return options;
+};
+
+async function viewNodeOutput(node) {
+    const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
+    const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
+    scriptNodes.sort((a, b) => a.id - b.id);
+    const idx = scriptNodes.indexOf(node);
+    if (idx < 0) return;
+    const nodeTitle = node.title || 'node';
+    const key = idx + '_' + nodeTitle;
+
+    const res = await fetch(`/projects/${PROJECT_ID}/output/${encodeURIComponent(key)}`);
+    if (!res.ok) { alert('获取输出失败'); return; }
+    const data = await res.json();
+    const dialog = document.getElementById('output-dialog');
+    const content = document.getElementById('output-content');
+
+    if (data.files.length === 0) {
+        content.innerHTML = '<div class="text-muted-text">暂无输出文件</div>';
+    } else {
+        content.innerHTML = data.files.map(f =>
+            `<div class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-surface-container-low"><i data-lucide="file" class="w-4 h-4 text-secondary"></i><span>${f}</span></div>`
+        ).join('');
+    }
+    dialog.showModal();
+    lucide.createIcons();
+}
+
+async function runSingleNode(node) {
+    await saveGraph();
+    const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
+    const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
+    scriptNodes.sort((a, b) => a.id - b.id);
+    const idx = scriptNodes.indexOf(node);
+    // TODO: implement single node run endpoint
+    node.color = '#0d47a1';
+    canvas.setDirty(true, true);
+}
+
+// --- Start ---
+initGraph();
+</script>
+{% endblock %}

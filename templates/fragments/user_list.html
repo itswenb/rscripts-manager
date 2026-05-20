@@ -1,0 +1,28 @@
+{% for user in users %}
+<div id="user-{{ user.id }}" class="bg-surface-container-lowest border border-border rounded-xl p-4 flex items-center justify-between gap-4 shadow-[0_1px_2px_rgba(0,0,0,0.05)] group">
+    <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-semibold text-sm">
+            {{ user.username|truncate(1) }}
+        </div>
+        <div>
+            <h3 class="text-base font-semibold text-on-surface">{{ user.username }}</h3>
+            <div class="flex items-center gap-3 text-xs text-muted-text mt-0.5">
+                <span class="px-2 py-0.5 rounded bg-surface-container text-secondary font-medium">{{ user.role }}</span>
+                <span>{{ user.created_at }}</span>
+            </div>
+        </div>
+    </div>
+    <button hx-delete="/users/{{ user.id }}" hx-target="#user-{{ user.id }}" hx-swap="outerHTML swap:200ms" hx-confirm="确定删除用户「{{ user.username }}」？"
+        class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:text-destructive hover:border-destructive transition-colors opacity-0 group-hover:opacity-100">
+        删除
+    </button>
+</div>
+{% endfor %}
+
+{% if users.is_empty() %}
+<div class="text-center py-12 text-muted-text">
+    <i data-lucide="users" class="w-12 h-12 mx-auto mb-4 opacity-50"></i>
+    <p class="text-lg font-medium">暂无用户</p>
+    <p class="text-sm mt-1">点击"添加用户"创建</p>
+</div>
+{% endif %}

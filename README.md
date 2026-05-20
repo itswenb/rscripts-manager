@@ -1,185 +1,114 @@
 # RFlow
 
-RFlow is an internal web-based analysis workbench for R-driven bioinformatics and data-analysis workflows.
+RFlow 是一个面向生物信息学的 R 脚本脚本节点管理平台，部署在 HPC 登录节点上，通过 Slurm 调度计算任务到集群执行。
 
-The platform is designed for teams that run large-scale analysis pipelines on remote Linux servers but still require iterative, human-controlled parameter tuning and result inspection.
-
----
-
-# Why RFlow Exists
-
-Traditional server-side analysis workflows are painful.
-
-Researchers often need to:
-
-- SSH into servers
-- manually upload/download files
-- execute partial R scripts
-- inspect generated plots locally
-- repeatedly tune parameters
-- rerun workflows step-by-step
-
-This becomes increasingly inefficient when:
-
-- datasets are too large for local execution
-- workflows contain many iterative stages
-- every step requires visual inspection
-
-RFlow turns this process into a browser-based workflow.
+单二进制部署，无外部依赖（除 SQLite）。
 
 ---
 
-# Core Features
+## 核心功能
 
-## Project Management
+### 1. 项目管理
 
-Organize analysis workflows into isolated projects.
+以项目为单位组织分析工作。每个项目包含独立的脚本节点配置和运行历史。
 
----
+### 2. 脚本节点（Pipeline）
 
-## File Asset Management
+核心功能。用户在"脚本节点"标签页中管理所有可用的 R 脚本节点：
 
-Manage server-side files directly from the browser.
+- 每个节点绑定一个 R 脚本
+- 通过脚本注解（`#' @param`、`#' @input`、`#' @output`）自动解析参数和输入输出
+- 用户可查看每个节点的输入/输出定义
 
-Supports:
+在项目中，用户将节点串联成完整的分析流程，支持：
 
-- file upload
-- directory management
-- move/rename/delete
-- previews
-- downloads
+- Steps 组件展示每个节点的输入/输出
+- 控制台实时显示运行日志
+- 整体执行/暂停
+- 单节点开始/停止
+- 点击已执行节点时回退到该节点重新执行
+- 节点失败后自动暂停
 
----
+### 3. 文件管理
 
-## Structured R Workflow Execution
+管理当前用户 home 目录下的文件：
 
-Execute administrator-registered R scripts through structured forms.
+- 浏览目录结构
+- 上传/下载文件
+- 创建/删除/重命名目录和文件
 
-Supports:
+### 4. Slurm 集成
 
-- multiple input files
-- directory inputs
-- parameter schemas
-- execution history
-
----
-
-## Result Visualization
-
-Inspect generated outputs directly in the browser.
-
-Supports:
-
-- PNG
-- SVG
-- PDF
-- CSV
-- TSV
-- HTML
-- logs
+R 脚本通过 `sbatch` 提交到 HPC 计算节点执行，登录节点仅负责 Web 服务和作业调度。
 
 ---
 
-## Execution Tracking
+## 技术栈
 
-Every run preserves:
-
-- selected inputs
-- parameters
-- logs
-- outputs
-- timestamps
-
-All analysis workflows remain reproducible.
+- **Rust** — Axum + Tokio
+- **模板** — Askama（服务端渲染）
+- **交互** — HTMX（局部刷新，无需 JS 框架）
+- **样式** — Tailwind CSS
+- **数据库** — SQLite（单文件，零配置）
+- **计算调度** — Slurm（sbatch/sacct）
 
 ---
 
-# Technology Stack
+## 部署
 
-## Backend
+单二进制，scp 到 HPC 登录节点即可运行：
 
-- Rust
-- Axum
-- SQLx
-- Tokio
+```bash
+./rflow --port 9000 --data-dir ~/rflow-data
+```
 
-## Frontend
+通过 SSH 隧道从本地浏览器访问：
 
-- React
-- Farm
-- TailwindCSS
-- shadcn/ui
-
-## Runtime
-
-- R
-- Rscript
-- renv
-
-## Infrastructure
-
-- PostgreSQL
-- Linux filesystem storage
+```bash
+ssh -L 8080:localhost:9000 -J user@bastion user@login-node
+# 浏览器打开 http://localhost:8080
+```
 
 ---
 
-# Project Structure
+## 项目结构
 
 ```text
 rflow/
-├── crates/
-│   ├── api/
-│   ├── worker/
-│   ├── core/
-│   └── rrunner/
-├── apps/
-│   └── web/
-├── scripts/
-│   └── r/
-└── data/
-````
-
----
-
-# Execution Model
-
-Every analysis step is executed as:
-
-```bash
-Rscript script.R \
-  --inputs inputs.json \
-  --params params.json \
-  --output outputs/
+├── src/
+│   ├── main.rs
+│   ├── routes/
+│   ├── models/
+│   ├── slurm/
+│   └── rparser/
+├── templates/          # Askama HTML 模板
+├── static/             # Tailwind CSS 产物
+├── migrations/         # SQLite 迁移
+├── scripts/            # R 脚本模板和 rflow.R 辅助库
+└── Cargo.toml
 ```
 
-This ensures:
+---
 
-* reproducibility
-* auditability
-* structured execution
+## 执行模型
+
+每个节点执行时：
+
+1. Worker 生成 Slurm 作业脚本
+2. 写入 `params.json`（参数）和 `inputs.json`（输入文件路径）
+3. `sbatch` 提交到计算节点
+4. 计算节点执行 `Rscript script.R`，脚本通过 `source("rflow.R")` 读取参数和输入
+5. 输出写到 `outputs/` 目录
+6. Worker 轮询作业状态，完成后收集结果
 
 ---
 
-# Current Scope
+## 单用户模式
 
-RFlow currently focuses on:
-
-* internal research teams
-* R-based workflows
-* step-by-step execution
-* human-in-the-loop analysis
-
-The project intentionally avoids:
-
-* arbitrary code execution
-* cloud orchestration complexity
-* notebook-style execution
-* AI-controlled workflows
+仅需管理员密码登录，无多用户权限系统。
 
 ---
 
-# License
+## License
 
 Internal / Private Project
-
-``` 

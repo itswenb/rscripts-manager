@@ -1,0 +1,103 @@
+<!-- Toolbar -->
+<div class="h-12 border-b border-outline-variant bg-surface flex items-center justify-between px-3 shrink-0">
+    <div class="flex items-center text-sm font-medium text-secondary">
+        {% for seg in breadcrumbs %}
+        {% if !loop.last %}
+        <a hx-get="/files?path={{ seg.path }}" hx-target="#file-content" hx-swap="innerHTML" hx-push-url="true" class="hover:text-on-surface cursor-pointer">{{ seg.name }}</a>
+        <i data-lucide="chevron-right" class="w-4 h-4 mx-1"></i>
+        {% else %}
+        <span class="text-on-surface">{{ seg.name }}</span>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <div class="flex items-center gap-2">
+        <button onclick="promptNewFolder()" class="h-8 px-3 rounded border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
+            <i data-lucide="folder-plus" class="w-4 h-4"></i> 新建文件夹
+        </button>
+        <button onclick="promptNewFile()" class="h-8 px-3 rounded border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
+            <i data-lucide="file-plus" class="w-4 h-4"></i> 新建文件
+        </button>
+        <input type="file" id="file-input" class="hidden" onchange="handleFileInput(this)">
+        <button type="button" onclick="document.getElementById('file-input').click()"
+            class="h-8 px-3 rounded border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
+            <i data-lucide="upload" class="w-4 h-4"></i> 上传
+        </button>
+    </div>
+</div>
+
+<!-- File Table -->
+<div class="flex-1 overflow-auto">
+    <table class="w-full text-sm">
+        <thead class="sticky top-0 bg-surface-container-low z-10">
+            <tr class="text-left text-[11px] font-bold uppercase tracking-wider text-secondary">
+                <th class="px-4 py-2.5 w-10"></th>
+                <th class="px-4 py-2.5">名称</th>
+                <th class="px-4 py-2.5">类型</th>
+                <th class="px-4 py-2.5 text-right">大小</th>
+                <th class="px-4 py-2.5">修改时间</th>
+                <th class="px-4 py-2.5 w-32"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-border">
+            {% for entry in entries %}
+            <tr class="hover:bg-surface-container-low transition-colors group">
+                <td class="px-4 py-2 text-center">
+                    {% if entry.is_dir %}
+                    {% if current_path.is_empty() && entry.name == "scripts" %}
+                    <i data-lucide="file-code-2" class="w-4 h-4 text-primary"></i>
+                    {% elif current_path.is_empty() && entry.name == "projects" %}
+                    <i data-lucide="folder-kanban" class="w-4 h-4 text-primary"></i>
+                    {% elif current_path.is_empty() && entry.name == "data" %}
+                    <i data-lucide="database" class="w-4 h-4 text-primary"></i>
+                    {% else %}
+                    <i data-lucide="folder" class="w-4 h-4 text-secondary"></i>
+                    {% endif %}
+                    {% else %}
+                    <i data-lucide="file-text" class="w-4 h-4 text-muted-text"></i>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2 font-medium">
+                    {% if entry.is_dir %}
+                    <a hx-get="/files?path={{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}" hx-target="#file-content" hx-swap="innerHTML" hx-push-url="true" class="hover:text-primary transition-colors cursor-pointer">{{ entry.name }}/</a>
+                    {% else %}
+                    <a onclick="openFile('{{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}')" class="hover:text-primary transition-colors cursor-pointer">{{ entry.name }}</a>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-2 text-secondary">{{ entry.file_type }}</td>
+                <td class="px-4 py-2 text-right font-mono text-secondary">{{ entry.size }}</td>
+                <td class="px-4 py-2 text-secondary whitespace-nowrap">{{ entry.modified }}</td>
+                <td class="px-4 py-2">
+                    <div class="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onclick="promptRename('{{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}', '{{ entry.name }}')"
+                            class="w-6 h-6 rounded text-secondary hover:text-primary hover:bg-surface-container flex items-center justify-center transition-colors" title="重命名">
+                            <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+                        </button>
+                        {% if !entry.is_dir %}
+                        <a href="/files/download?path={{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}" class="w-6 h-6 rounded text-secondary hover:text-primary hover:bg-surface-container flex items-center justify-center transition-colors" title="下载">
+                            <i data-lucide="download" class="w-4 h-4"></i>
+                        </a>
+                        {% endif %}
+                        <button hx-post="/files/delete" hx-vals='{"path": "{{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}"}' hx-target="#file-content" hx-swap="innerHTML" hx-confirm="确定删除「{{ entry.name }}」？"
+                            class="w-6 h-6 rounded text-secondary hover:text-destructive hover:bg-error-container flex items-center justify-center transition-colors" title="删除">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+
+            {% if entries.is_empty() %}
+            <tr>
+                <td colspan="6" class="px-4 py-12 text-center text-muted-text">
+                    此目录为空
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Status Bar -->
+<div class="h-8 bg-surface-container-lowest border-t border-outline-variant flex items-center px-4 text-[11px] font-bold tracking-wider uppercase text-secondary shrink-0">
+    <span>{{ entries.len() }} 个项目</span>
+</div>
