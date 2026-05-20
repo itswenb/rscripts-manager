@@ -1,10 +1,10 @@
-mod routes;
 mod models;
-mod slurm;
+mod routes;
 mod rparser;
+mod slurm;
 
-use axum::Router;
 use axum::extract::DefaultBodyLimit;
+use axum::Router;
 use sqlx::sqlite::SqlitePoolOptions;
 use std::path::PathBuf;
 use tower_http::services::ServeDir;
@@ -26,7 +26,10 @@ async fn main() {
     dotenv::dotenv().expect(".env file not found");
 
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
-    let port: u16 = std::env::var("PORT").expect("PORT must be set in .env").parse().expect("PORT must be a valid number");
+    let port: u16 = std::env::var("PORT")
+        .expect("PORT must be set in .env")
+        .parse()
+        .expect("PORT must be a valid number");
     let data_dir = expand_tilde(&std::env::var("DATA_DIR").expect("DATA_DIR must be set in .env"));
     std::fs::create_dir_all(&data_dir).expect("Failed to create data dir");
     std::fs::create_dir_all(format!("{data_dir}/scripts")).expect("Failed to create scripts dir");
@@ -40,11 +43,18 @@ async fn main() {
         .await
         .expect("Failed to connect to database");
 
-    sqlx::migrate!("./migrations").run(&pool).await.expect("Failed to run migrations");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
 
     init_admin(&pool).await;
 
-    let state = AppState { pool, data_dir, secret };
+    let state = AppState {
+        pool,
+        data_dir,
+        secret,
+    };
 
     let app = Router::new()
         .merge(routes::router(state.clone()))
@@ -55,7 +65,7 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    tracing::info!("RFlow running on http://0.0.0.0:{port}");
+    tracing::info!("Ripeline running on http://0.0.0.0:{port}");
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -94,9 +104,9 @@ async fn init_admin(pool: &sqlx::SqlitePool) {
 }
 
 pub fn hash_password(password: &str) -> String {
-    use argon2::{Argon2, PasswordHasher};
-    use argon2::password_hash::SaltString;
     use argon2::password_hash::rand_core::OsRng;
+    use argon2::password_hash::SaltString;
+    use argon2::{Argon2, PasswordHasher};
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
@@ -106,6 +116,11 @@ pub fn hash_password(password: &str) -> String {
 
 pub async fn audit(pool: &sqlx::SqlitePool, user: &str, action: &str, target: &str, detail: &str) {
     sqlx::query("INSERT INTO audit_logs (user, action, target, detail) VALUES (?, ?, ?, ?)")
-        .bind(user).bind(action).bind(target).bind(detail)
-        .execute(pool).await.ok();
+        .bind(user)
+        .bind(action)
+        .bind(target)
+        .bind(detail)
+        .execute(pool)
+        .await
+        .ok();
 }

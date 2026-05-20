@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}文件{% endblock %}
 {% block content %}
-<div id="page-content" class="flex-1 flex flex-col overflow-hidden">
-<div class="flex-1 flex overflow-hidden relative" id="file-page">
+<div id="page-content" class="flex-1 flex flex-col overipeline-hidden">
+<div class="flex-1 flex overipeline-hidden relative" id="file-page">
     <!-- Drop Overlay -->
     <div id="drop-overlay" class="hidden absolute inset-0 z-50 bg-primary/10 border-2 border-dashed border-primary rounded-lg flex items-center justify-center pointer-events-none">
         <div class="text-center">
@@ -17,7 +17,7 @@
             <span class="text-sm font-semibold text-on-surface">上传中</span>
             <span id="upload-pct" class="text-xs font-mono text-secondary">0%</span>
         </div>
-        <div class="w-full bg-surface-container-high rounded-full h-1.5 overflow-hidden">
+        <div class="w-full bg-surface-container-high rounded-full h-1.5 overipeline-hidden">
             <div id="upload-bar" class="bg-primary h-1.5 rounded-full transition-all duration-300" style="width: 0%"></div>
         </div>
         <div id="upload-filename" class="text-xs text-muted-text mt-1.5 truncate"></div>
@@ -32,7 +32,7 @@
                 <i data-lucide="folder-plus" class="w-4 h-4"></i>
             </button>
         </div>
-        <div class="flex-1 overflow-y-auto p-2">
+        <div class="flex-1 overipeline-y-auto p-2">
             <ul class="space-y-[2px]">
                 {% for dir in directories %}
                 <li>
@@ -71,7 +71,7 @@
                 <button onclick="document.getElementById('file-modal').close()" class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">关闭</button>
             </div>
         </div>
-        <div id="modal-body" class="flex-1 overflow-hidden relative">
+        <div id="modal-body" class="flex-1 overipeline-hidden relative">
             <img id="modal-image" class="hidden max-w-full max-h-full object-contain m-auto p-4">
             <iframe id="modal-pdf" class="hidden w-full h-full border-0" title="PDF 预览"></iframe>
             <div id="editor-wrap" class="w-full h-full"></div>

@@ -16,7 +16,7 @@
 ### DataSource 节点
 - 无 input 端口
 - 一个 output 端口 "file"
-- 双击弹出文件选择器，从 ~/.rflow/data/ 选择文件
+- 双击弹出文件选择器，从 ~/.ripeline/data/ 选择文件
 - 节点属性存储选中的文件路径
 
 ### Script 节点（动态注册）
@@ -45,7 +45,7 @@ ProjectFlow 表增加 graph_data TEXT 字段，存储 LiteGraph graph.serialize(
 ## 执行逻辑
 
 1. 保存 graph → 解析连线 → 拓扑排序
-2. 每个节点创建工作目录：~/.rflow/projects/{project_name}/{index}_{node_name}/
+2. 每个节点创建工作目录：~/.ripeline/projects/{project_name}/{index}_{node_name}/
 3. 上游 output 文件软链接到当前节点工作目录作为 input
 4. sbatch 提交：cd {work_dir} && Rscript {script_path}
 5. 轮询 sacct 状态，完成后更新节点颜色

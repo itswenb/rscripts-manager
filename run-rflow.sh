@@ -5,11 +5,11 @@
 # 3. ADMIN_PASSWORD=admin
 # 4. SECRET 自动随机生成
 # 5. 执行 cargo build --release
-# 6. 启动 ./target/release/rflow
+# 6. 启动 ./target/release/ripeline
 #
 # 也支持临时指定端口：
 #
-# PORT=9100 ./run-rflow.sh
+# PORT=9100 ./run-ripeline.sh
 
 set -euo pipefail
 
@@ -27,9 +27,9 @@ random_secret() {
 if [ ! -f ".env" ]; then
   SECRET="$(random_secret)"
   cat > .env <<EOF
-DATABASE_URL=sqlite:rflow.db?mode=rwc
+DATABASE_URL=sqlite:ripeline.db?mode=rwc
 PORT=${PORT:-9000}
-DATA_DIR=~/.rflow
+DATA_DIR=~/.ripeline
 SECRET=${SECRET}
 ADMIN_USER=admin
 ADMIN_PASSWORD=admin
@@ -39,4 +39,4 @@ fi
 
 cargo build --release
 
-exec ./target/release/rflow
+exec ./target/release/ripeline

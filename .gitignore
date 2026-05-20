@@ -1,5 +1,6 @@
 # Rust
 target/
+pkg/
 
 # Node
 node_modules/
@@ -12,9 +13,9 @@ package-lock.json
 
 # Data
 data/
-rflow.db
-rflow.db-shm
-rflow.db-wal
+ripeline.db
+ripeline.db-shm
+ripeline.db-wal
 
 # Logs
 *.log

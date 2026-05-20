@@ -1,11 +1,11 @@
+use crate::AppState;
 use axum::extract::State;
 use axum::response::{Html, Redirect};
 use axum::Form;
-use axum_extra::extract::cookie::{CookieJar, Cookie};
+use axum_extra::extract::cookie::{Cookie, CookieJar};
 use serde::Deserialize;
-use crate::AppState;
 
-const COOKIE_NAME: &str = "rflow_session";
+const COOKIE_NAME: &str = "ripeline_session";
 
 pub async fn login_page() -> Html<&'static str> {
     Html(include_str!("../../templates/login.html"))
@@ -23,7 +23,7 @@ pub async fn login(
     Form(form): Form<LoginForm>,
 ) -> (CookieJar, Redirect) {
     let row = sqlx::query_as::<_, (String, String)>(
-        "SELECT username, password_hash FROM admin WHERE username = ?"
+        "SELECT username, password_hash FROM admin WHERE username = ?",
     )
     .bind(&form.username)
     .fetch_optional(&state.pool)
@@ -31,9 +31,12 @@ pub async fn login(
     .unwrap_or(None);
 
     if let Some((_username, hash)) = row {
-        use argon2::{Argon2, PasswordVerifier, PasswordHash};
+        use argon2::{Argon2, PasswordHash, PasswordVerifier};
         let parsed = PasswordHash::new(&hash).unwrap();
-        if Argon2::default().verify_password(form.password.as_bytes(), &parsed).is_ok() {
+        if Argon2::default()
+            .verify_password(form.password.as_bytes(), &parsed)
+            .is_ok()
+        {
             let token = make_token(&state.secret);
             let cookie = Cookie::build((COOKIE_NAME, token))
                 .path("/")
@@ -46,7 +49,10 @@ pub async fn login(
 }
 
 pub async fn logout(jar: CookieJar) -> (CookieJar, Redirect) {
-    (jar.remove(Cookie::from(COOKIE_NAME)), Redirect::to("/login"))
+    (
+        jar.remove(Cookie::from(COOKIE_NAME)),
+        Redirect::to("/login"),
+    )
 }
 
 pub fn is_authenticated(jar: &CookieJar, secret: &str) -> bool {
@@ -67,7 +73,9 @@ fn make_token(secret: &str) -> String {
 fn verify_token(token: &str, secret: &str) -> bool {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
-    let Some((msg, sig)) = token.split_once('.') else { return false };
+    let Some((msg, sig)) = token.split_once('.') else {
+        return false;
+    };
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(msg.as_bytes());
     hex::encode(mac.finalize().into_bytes()) == sig

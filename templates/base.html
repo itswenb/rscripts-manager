@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RFlow - {% block title %}{% endblock %}</title>
+    <title>Ripeline - {% block title %}{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css?v=20260520-terminal">
     <script src="/static/vendor/htmx.min.js"></script>
     <script src="/static/vendor/lucide.min.js"></script>
 </head>
-<body class="h-screen overflow-hidden">
-    <div class="flex h-screen w-full bg-background text-on-background overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<body class="h-screen overipeline-hidden">
+    <div class="flex h-screen w-full bg-background text-on-background overipeline-hidden selection:bg-primary-container selection:text-on-primary-container">
         <!-- Sidebar -->
         <nav class="hidden md:flex flex-col w-64 h-screen sticky left-0 top-0 py-4 bg-surface-container-lowest border-r border-outline-variant shrink-0 z-40">
             <div class="px-4 mb-4">
@@ -18,13 +18,13 @@
                         <i data-lucide="flask-conical" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h1 class="text-lg font-semibold text-on-surface leading-tight">RFlow</h1>
+                        <h1 class="text-lg font-semibold text-on-surface leading-tight">Ripeline</h1>
                         <div class="font-mono text-xs text-muted-text">v0.1.0</div>
                     </div>
                 </div>
             </div>
 
-            <div class="flex-1 overflow-y-auto px-2 space-y-1">
+            <div class="flex-1 overipeline-y-auto px-2 space-y-1">
                 <a hx-get="/projects" hx-target="#main-content" hx-select="#page-content" hx-swap="innerHTML" hx-push-url="true" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer {% if active_nav == "projects" %}bg-secondary-container text-on-secondary-container font-semibold{% else %}text-secondary hover:bg-surface-container-high{% endif %}">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
                     <span>项目</span>
@@ -60,7 +60,7 @@
             <!-- Top Bar -->
             <header class="flex items-center justify-between px-6 h-16 w-full sticky top-0 z-30 bg-surface border-b border-outline-variant shrink-0">
                 <div class="flex items-center gap-4">
-                    <div class="text-xl font-bold text-primary">RFlow</div>
+                    <div class="text-xl font-bold text-primary">Ripeline</div>
                 </div>
                 <div class="flex items-center gap-4">
                     <div id="cluster-status" hx-get="/cluster/status" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
@@ -68,7 +68,7 @@
                 </div>
             </header>
 
-            <div id="main-content" class="flex-1 flex flex-col min-h-0 overflow-hidden">
+            <div id="main-content" class="flex-1 flex flex-col min-h-0 overipeline-hidden">
                 {% block content %}{% endblock %}
             </div>
         </div>
@@ -82,7 +82,7 @@
             const scripts = await res.json();
             select.innerHTML = '<option value="">请选择脚本...</option>';
             if (!scripts.length) {
-                select.innerHTML = '<option value="">~/.rflow/scripts/ 下无 .R 文件</option>';
+                select.innerHTML = '<option value="">~/.ripeline/scripts/ 下无 .R 文件</option>';
                 return;
             }
             window.pipelineScripts = scripts;

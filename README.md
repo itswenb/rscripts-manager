@@ -1,6 +1,6 @@
-# RFlow
+# Ripeline
 
-RFlow 是一个面向生物信息学的 R 脚本脚本节点管理平台，部署在 HPC 登录节点上，通过 Slurm 调度计算任务到集群执行。
+Ripeline 是一个面向生物信息学的 R 脚本脚本节点管理平台，部署在 HPC 登录节点上，通过 Slurm 调度计算任务到集群执行。
 
 单二进制部署，无外部依赖（除 SQLite）。
 
@@ -59,7 +59,7 @@ R 脚本通过 `sbatch` 提交到 HPC 计算节点执行，登录节点仅负责
 单二进制，scp 到 HPC 登录节点即可运行：
 
 ```bash
-./rflow --port 9000 --data-dir ~/rflow-data
+./ripeline --port 9000 --data-dir ~/ripeline-data
 ```
 
 通过 SSH 隧道从本地浏览器访问：
@@ -74,7 +74,7 @@ ssh -L 8080:localhost:9000 -J user@bastion user@login-node
 ## 项目结构
 
 ```text
-rflow/
+ripeline/
 ├── src/
 │   ├── main.rs
 │   ├── routes/
@@ -84,7 +84,7 @@ rflow/
 ├── templates/          # Askama HTML 模板
 ├── static/             # Tailwind CSS 产物
 ├── migrations/         # SQLite 迁移
-├── scripts/            # R 脚本模板和 rflow.R 辅助库
+├── scripts/            # R 脚本模板和 ripeline.R 辅助库
 └── Cargo.toml
 ```
 
@@ -97,7 +97,7 @@ rflow/
 1. Worker 生成 Slurm 作业脚本
 2. 写入 `params.json`（参数）和 `inputs.json`（输入文件路径）
 3. `sbatch` 提交到计算节点
-4. 计算节点执行 `Rscript script.R`，脚本通过 `source("rflow.R")` 读取参数和输入
+4. 计算节点执行 `Rscript script.R`，脚本通过 `source("ripeline.R")` 读取参数和输入
 5. 输出写到 `outputs/` 目录
 6. Worker 轮询作业状态，完成后收集结果
 

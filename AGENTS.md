@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-RFlow 是部署在 HPC 登录节点上的 R 脚本脚本节点管理平台。
+Ripeline 是部署在 HPC 登录节点上的 R 脚本脚本节点管理平台。
 
 单体 Rust 应用，服务端渲染，通过 Slurm 调度 R 脚本到计算节点执行。
 

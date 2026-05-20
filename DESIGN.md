@@ -113,7 +113,7 @@ Axum HTTP Server
 ### 提交作业
 
 ```bash
-sbatch --job-name=rflow_{run_id}_{step} \
+sbatch --job-name=ripeline_{run_id}_{step} \
        --output={run_dir}/stdout.log \
        --error={run_dir}/stderr.log \
        --wrap="cd {run_dir} && Rscript {script_path}"
@@ -185,8 +185,8 @@ npx tailwindcss -i static/input.css -o static/style.css --minify
 cargo build --release --target x86_64-unknown-linux-gnu
 
 # 部署
-scp target/release/rflow user@login-node:~/
-ssh user@login-node "./rflow --port 9000"
+scp target/release/ripeline user@login-node:~/
+ssh user@login-node "./ripeline --port 9000"
 ```
 
 ---
