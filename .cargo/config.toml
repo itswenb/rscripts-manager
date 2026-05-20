@@ -1,3 +1,4 @@
 [alias]
 pkg-all = "run --quiet --manifest-path xtask/Cargo.toml -- pkg-all"
 pkg-linux-x86_64 = "run --quiet --manifest-path xtask/Cargo.toml -- pkg-linux-x86_64"
+pkg-macos-aarch64 = "run --quiet --manifest-path xtask/Cargo.toml -- pkg-macos-aarch64"
