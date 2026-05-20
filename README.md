@@ -1,6 +1,6 @@
-# Ripeline
+# ripeline
 
-Ripeline 是一个面向生物信息学的 R 脚本脚本节点管理平台，部署在 HPC 登录节点上，通过 Slurm 调度计算任务到集群执行。
+ripeline 是一个面向生物信息学的 R 脚本脚本节点管理平台，部署在 HPC 登录节点上，通过 Slurm 调度计算任务到集群执行。
 
 单二进制部署，无外部依赖（除 SQLite）。
 

@@ -27,3 +27,4 @@ ripeline.db-wal
 
 # OS
 .DS_Store
+*.db

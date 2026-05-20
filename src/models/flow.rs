@@ -1,4 +1,5 @@
 use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow)]
@@ -45,4 +46,67 @@ pub struct StepRun {
     pub stderr: Option<String>,
     pub started_at: Option<NaiveDateTime>,
     pub finished_at: Option<NaiveDateTime>,
+}
+
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeConfig {
+    #[serde(default)]
+    pub mode: RuntimeMode,
+    pub local: LocalRuntimeConfig,
+    pub cluster: ClusterRuntimeConfig,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeMode {
+    #[default]
+    Host,
+    ClusterSingularity,
+    ClusterModule,
+    ClusterBundled,
+    Auto,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalRuntimeConfig {
+    pub data_dir: String,
+    pub scripts_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterRuntimeConfig {
+    pub mode: ClusterRuntimeMode,
+    pub module_name: String,
+    pub sif_dir: String,
+    pub sif_path: String,
+    pub singularity_args: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClusterRuntimeMode {
+    #[default]
+    Bundled,
+    Module,
+    Singularity,
+}
+
+impl Default for RuntimeConfig {
+    fn default() -> Self {
+        Self {
+            mode: RuntimeMode::Host,
+            local: LocalRuntimeConfig {
+                data_dir: String::new(),
+                scripts_dir: String::new(),
+            },
+            cluster: ClusterRuntimeConfig {
+                mode: ClusterRuntimeMode::Bundled,
+                module_name: String::new(),
+                sif_dir: String::new(),
+                sif_path: String::new(),
+                singularity_args: String::new(),
+            },
+        }
+    }
 }

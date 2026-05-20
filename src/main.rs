@@ -1,6 +1,7 @@
 mod models;
 mod routes;
 mod rparser;
+mod runtime;
 mod slurm;
 
 use axum::extract::DefaultBodyLimit;
@@ -65,7 +66,7 @@ async fn main() {
         .await
         .expect("Failed to bind");
 
-    tracing::info!("Ripeline running on http://0.0.0.0:{port}");
+    tracing::info!("ripeline running on http://0.0.0.0:{port}");
     axum::serve(listener, app).await.unwrap();
 }
 

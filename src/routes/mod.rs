@@ -9,6 +9,7 @@ pub mod flows;
 pub mod cluster;
 pub mod users;
 pub mod audit;
+pub mod settings;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -38,6 +39,10 @@ pub fn router(state: AppState) -> Router {
         .route("/files/save", post(files::save_file))
         .route("/files/download", get(files::download))
         .route("/cluster/status", get(cluster::status))
+        .route("/settings", get(settings::get_settings).post(settings::save_settings))
+        .route("/runtime/detect", get(settings::detect))
+        .route("/runtime/sif-list", get(settings::list_sif))
+        .route("/runtime/modules", get(settings::list_modules))
         .route("/flows/{flow_id}/run", post(flows::start_run))
         .route("/flows/{flow_id}/pause", post(flows::pause))
         .route("/flows/{flow_id}/resume", post(flows::resume))

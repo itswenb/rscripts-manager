@@ -5,5 +5,5 @@ pub mod user;
 
 pub use project::Project;
 pub use pipeline_node::PipelineNode;
-pub use flow::{ProjectFlow, FlowRun, StepRun};
+pub use flow::{ClusterRuntimeMode, FlowRun, ProjectFlow, RuntimeConfig, RuntimeMode, StepRun};
 pub use user::{User, AuditLog};

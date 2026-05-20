@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ripeline - {% block title %}{% endblock %}</title>
+    <title>ripeline - {% block title %}{% endblock %}</title>
     <link rel="stylesheet" href="/static/style.css?v=20260520-terminal">
     <script src="/static/vendor/htmx.min.js"></script>
     <script src="/static/vendor/lucide.min.js"></script>
 </head>
-<body class="h-screen overipeline-hidden">
-    <div class="flex h-screen w-full bg-background text-on-background overipeline-hidden selection:bg-primary-container selection:text-on-primary-container">
+<body class="h-screen overflow-hidden">
+    <div class="flex h-screen w-full bg-background text-on-background overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
         <!-- Sidebar -->
         <nav class="hidden md:flex flex-col w-64 h-screen sticky left-0 top-0 py-4 bg-surface-container-lowest border-r border-outline-variant shrink-0 z-40">
             <div class="px-4 mb-4">
@@ -18,13 +18,13 @@
                         <i data-lucide="flask-conical" class="w-5 h-5"></i>
                     </div>
                     <div>
-                        <h1 class="text-lg font-semibold text-on-surface leading-tight">Ripeline</h1>
+                        <h1 class="text-lg font-semibold text-on-surface leading-tight">ripeline</h1>
                         <div class="font-mono text-xs text-muted-text">v0.1.0</div>
                     </div>
                 </div>
             </div>
 
-            <div class="flex-1 overipeline-y-auto px-2 space-y-1">
+            <div class="flex-1 overflow-y-auto px-2 space-y-1">
                 <a hx-get="/projects" hx-target="#main-content" hx-select="#page-content" hx-swap="innerHTML" hx-push-url="true" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer {% if active_nav == "projects" %}bg-secondary-container text-on-secondary-container font-semibold{% else %}text-secondary hover:bg-surface-container-high{% endif %}">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
                     <span>项目</span>
@@ -60,29 +60,318 @@
             <!-- Top Bar -->
             <header class="flex items-center justify-between px-6 h-16 w-full sticky top-0 z-30 bg-surface border-b border-outline-variant shrink-0">
                 <div class="flex items-center gap-4">
-                    <div class="text-xl font-bold text-primary">Ripeline</div>
+                    <div class="text-xl font-bold text-primary">ripeline</div>
                 </div>
                 <div class="flex items-center gap-4">
                     <div id="cluster-status" hx-get="/cluster/status" hx-trigger="load, every 30s" hx-swap="innerHTML"></div>
-                    <a href="/logout" class="text-sm text-secondary hover:text-on-surface transition-colors">退出</a>
+                    <button type="button" id="runtime-config-btn" class="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant bg-surface px-3 py-1.5 text-sm text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors">
+                        <i data-lucide="settings-2" class="w-4 h-4"></i>
+                        <span id="runtime-mode-badge">运行设置</span>
+                    </button>
                 </div>
             </header>
 
-            <div id="main-content" class="flex-1 flex flex-col min-h-0 overipeline-hidden">
+            <div id="main-content" class="flex-1 flex flex-col min-h-0 overflow-hidden">
                 {% block content %}{% endblock %}
             </div>
         </div>
     </div>
+    <dialog id="runtime-config-dialog" class="rounded-xl p-0 w-full max-w-2xl backdrop:bg-black/30 border border-border shadow-lg">
+        <div class="bg-surface-container-lowest rounded-xl">
+            <div class="px-6 py-4 border-b border-border flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-bold text-on-surface">运行设置</h2>
+                    <p class="text-xs text-muted-text mt-1">选择运行模式（全局设置）</p>
+                </div>
+                <button type="button" id="runtime-config-close" class="text-secondary hover:text-on-surface">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+            <form id="runtime-config-form" class="p-6 space-y-3">
+                <div id="runtime-mode-list" class="space-y-2">
+                    <!-- 模式选项动态渲染 -->
+                </div>
+                <div id="runtime-error" class="hidden text-sm text-error px-3 py-2 rounded bg-error-container/40"></div>
+                <div class="flex items-center justify-between gap-2 pt-2">
+                    <button type="button" id="runtime-refresh" class="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">
+                        <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                        <span>刷新检测</span>
+                    </button>
+                    <div class="flex items-center gap-2">
+                        <button type="button" id="runtime-config-cancel" class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
+                        <button type="submit" id="runtime-save-btn" class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">保存</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
     <script>
         lucide.createIcons();
         document.body.addEventListener('htmx:afterSwap', function() { lucide.createIcons(); });
+
+        // ========= 运行设置（全局，存后端 settings 表） =========
+        const RUNTIME_MODES = [
+            { id: 'host',                 label: '当前宿主机',          requires: ['host_rscript'],         hasFields: false },
+            { id: 'cluster_singularity',  label: '集群 + Singularity',  requires: ['sinfo','singularity'],  hasFields: 'sif' },
+            { id: 'cluster_module',       label: '集群 + Module load',  requires: ['sinfo','module'],       hasFields: 'module' },
+            { id: 'cluster_bundled',      label: '集群 + Bundled',      requires: ['sinfo','host_rscript'], hasFields: false },
+            { id: 'auto',                 label: '自动 (集群优先)',      requires: [],                       hasFields: 'auto' },
+        ];
+        const REQUIRE_LABEL = { host_rscript:'Rscript', sinfo:'sinfo', singularity:'singularity', module:'module' };
+        const runtimeState = {
+            mode: 'host',
+            singularity_image_dir: '',
+            singularity_image: '',
+            module_name: '',
+            detection: { host_rscript:false, sinfo:false, singularity:false, module:false },
+            sifList: [],
+            moduleList: [],
+        };
+
+        function badgeHtml(ok, label) {
+            const cls = ok
+                ? 'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-primary-container/40 text-on-primary-container'
+                : 'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-error-container/40 text-on-error-container';
+            return `<span class="${cls}">${ok?'✓':'✗'} ${label}</span>`;
+        }
+
+        function modeAvailable(mode) {
+            return mode.requires.every(r => runtimeState.detection[r]);
+        }
+
+        function modeFieldsValid(modeId) {
+            if (modeId === 'cluster_singularity') return !!runtimeState.singularity_image.trim();
+            if (modeId === 'cluster_module')      return !!runtimeState.module_name.trim();
+            return true;
+        }
+
+        function renderRuntimeModes() {
+            const container = document.getElementById('runtime-mode-list');
+            if (!container) return;
+            container.innerHTML = RUNTIME_MODES.map(m => {
+                const available = modeAvailable(m);
+                const selected  = runtimeState.mode === m.id;
+                const badges = m.requires.map(r => badgeHtml(runtimeState.detection[r], REQUIRE_LABEL[r])).join(' ');
+                const disabled = !available && m.id !== 'auto';
+                const rowCls = `flex flex-col gap-2 rounded-lg border p-3 transition-colors ${selected ? 'border-primary bg-primary-container/20' : 'border-outline-variant'} ${disabled ? 'opacity-50' : 'hover:bg-surface-container-low cursor-pointer'}`;
+                return `
+                  <div class="${rowCls}" data-mode-row="${m.id}">
+                    <label class="flex items-center gap-2 ${disabled?'cursor-not-allowed':'cursor-pointer'}">
+                        <input type="radio" name="runtime_mode" value="${m.id}" ${selected?'checked':''} ${disabled?'disabled':''} class="accent-primary">
+                        <span class="text-sm font-medium text-on-surface flex-1">${m.label}</span>
+                        <span class="flex items-center gap-1">${badges}</span>
+                    </label>
+                    ${selected && m.hasFields ? `<div class="pl-6">${renderModeFields(m.id)}</div>` : ''}
+                  </div>
+                `;
+            }).join('');
+            // 行点击切换（点 label / 行任何位置）
+            container.querySelectorAll('[data-mode-row]').forEach(row => {
+                row.addEventListener('click', e => {
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+                    const id = row.dataset.modeRow;
+                    const m = RUNTIME_MODES.find(x => x.id === id);
+                    if (!modeAvailable(m) && id !== 'auto') return;
+                    runtimeState.mode = id;
+                    renderRuntimeModes();
+                    refreshSaveButton();
+                });
+            });
+            container.querySelectorAll('input[name="runtime_mode"]').forEach(input => {
+                input.addEventListener('change', e => {
+                    runtimeState.mode = e.target.value;
+                    renderRuntimeModes();
+                    refreshSaveButton();
+                });
+            });
+            // 字段输入绑定
+            const sifDir = container.querySelector('[data-field="sif_dir"]');
+            if (sifDir) sifDir.addEventListener('change', async e => {
+                runtimeState.singularity_image_dir = e.target.value.trim();
+                await fetchSifList();
+                renderRuntimeModes();
+                refreshSaveButton();
+            });
+            const sifSel = container.querySelector('[data-field="sif_path"]');
+            if (sifSel) sifSel.addEventListener('change', e => {
+                runtimeState.singularity_image = e.target.value;
+                refreshSaveButton();
+            });
+            const modSel = container.querySelector('[data-field="module_name"]');
+            if (modSel) modSel.addEventListener('change', e => {
+                runtimeState.module_name = e.target.value;
+                refreshSaveButton();
+            });
+            lucide.createIcons();
+        }
+
+        function renderModeFields(modeId) {
+            if (modeId === 'cluster_singularity') {
+                const dir = runtimeState.singularity_image_dir || '~/.ripeline/singularity_images/';
+                const opts = runtimeState.sifList.length
+                    ? runtimeState.sifList.map(f => {
+                        const full = joinPath(dir, f);
+                        return `<option value="${full}" ${runtimeState.singularity_image===full?'selected':''}>${f}</option>`;
+                    }).join('')
+                    : '<option value="">未找到 .sif 文件</option>';
+                return `
+                  <div class="grid grid-cols-1 gap-2">
+                    <label class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wide">镜像目录</label>
+                    <input data-field="sif_dir" type="text" value="${dir}" class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2 focus:outline-none focus:border-primary">
+                    <label class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wide">镜像文件</label>
+                    <select data-field="sif_path" class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2 focus:outline-none focus:border-primary">
+                        <option value="">请选择 .sif 文件</option>
+                        ${opts}
+                    </select>
+                  </div>
+                `;
+            }
+            if (modeId === 'cluster_module') {
+                const opts = runtimeState.moduleList.length
+                    ? runtimeState.moduleList.map(m => `<option value="${m}" ${runtimeState.module_name===m?'selected':''}>${m}</option>`).join('')
+                    : '<option value="">未检测到 R 相关 module</option>';
+                return `
+                  <div class="grid grid-cols-1 gap-2">
+                    <label class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wide">Module 名称</label>
+                    <select data-field="module_name" class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2 focus:outline-none focus:border-primary">
+                        <option value="">请选择 module</option>
+                        ${opts}
+                    </select>
+                  </div>
+                `;
+            }
+            if (modeId === 'auto') {
+                return `<p class="text-xs text-muted-text">下落顺序：集群-Singularity → 集群-Module → 集群-Bundled → 当前宿主机。已配置的字段会被对应模式使用。</p>`;
+            }
+            return '';
+        }
+
+        function joinPath(dir, file) {
+            if (!dir) return file;
+            return dir.endsWith('/') ? dir + file : dir + '/' + file;
+        }
+
+        function refreshSaveButton() {
+            const btn = document.getElementById('runtime-save-btn');
+            const err = document.getElementById('runtime-error');
+            if (!btn) return;
+            const m = RUNTIME_MODES.find(x => x.id === runtimeState.mode);
+            const ok = (modeAvailable(m) || m.id === 'auto') && modeFieldsValid(m.id);
+            btn.disabled = !ok;
+            btn.classList.toggle('opacity-50', !ok);
+            btn.classList.toggle('cursor-not-allowed', !ok);
+            if (err) {
+                if (!modeAvailable(m) && m.id !== 'auto') {
+                    err.textContent = '当前模式不可用：环境检测未通过';
+                    err.classList.remove('hidden');
+                } else if (!modeFieldsValid(m.id)) {
+                    err.textContent = m.id === 'cluster_singularity' ? '请选择 .sif 镜像' : '请选择 module';
+                    err.classList.remove('hidden');
+                } else {
+                    err.classList.add('hidden');
+                }
+            }
+        }
+
+        async function fetchDetection() {
+            try {
+                const res = await fetch('/runtime/detect');
+                runtimeState.detection = await res.json();
+            } catch (_) {}
+        }
+
+        async function fetchSifList() {
+            const dir = runtimeState.singularity_image_dir || '~/.ripeline/singularity_images/';
+            try {
+                const res = await fetch('/runtime/sif-list?dir=' + encodeURIComponent(dir));
+                const data = await res.json();
+                runtimeState.sifList = data.files || [];
+            } catch (_) { runtimeState.sifList = []; }
+        }
+
+        async function fetchModuleList() {
+            try {
+                const res = await fetch('/runtime/modules');
+                const data = await res.json();
+                runtimeState.moduleList = data.modules || [];
+            } catch (_) { runtimeState.moduleList = []; }
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch('/settings');
+                const s = await res.json();
+                runtimeState.mode = s.mode || 'host';
+                runtimeState.singularity_image_dir = s.singularity_image_dir || '';
+                runtimeState.singularity_image = s.singularity_image || '';
+                runtimeState.module_name = s.module_name || '';
+                runtimeState.detection = s.detection || runtimeState.detection;
+            } catch (_) {}
+        }
+
+        async function saveSettings() {
+            await fetch('/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: runtimeState.mode,
+                    singularity_image_dir: runtimeState.singularity_image_dir,
+                    singularity_image: runtimeState.singularity_image,
+                    module_name: runtimeState.module_name,
+                }),
+            });
+        }
+
+        function updateRuntimeBadge() {
+            const badge = document.getElementById('runtime-mode-badge');
+            if (!badge) return;
+            const m = RUNTIME_MODES.find(x => x.id === runtimeState.mode);
+            badge.textContent = m ? m.label : '运行设置';
+        }
+
+        async function openRuntimeDialog() {
+            await loadSettings();
+            await Promise.all([fetchSifList(), fetchModuleList()]);
+            renderRuntimeModes();
+            refreshSaveButton();
+            document.getElementById('runtime-config-dialog').showModal();
+        }
+
+        const runtimeDialog = document.getElementById('runtime-config-dialog');
+        const runtimeButton = document.getElementById('runtime-config-btn');
+        const runtimeClose  = document.getElementById('runtime-config-close');
+        const runtimeCancel = document.getElementById('runtime-config-cancel');
+        const runtimeForm   = document.getElementById('runtime-config-form');
+        const runtimeRefresh = document.getElementById('runtime-refresh');
+        if (runtimeButton) runtimeButton.addEventListener('click', openRuntimeDialog);
+        if (runtimeClose)  runtimeClose.addEventListener('click', () => runtimeDialog.close());
+        if (runtimeCancel) runtimeCancel.addEventListener('click', () => runtimeDialog.close());
+        if (runtimeRefresh) runtimeRefresh.addEventListener('click', async () => {
+            await fetchDetection();
+            await Promise.all([fetchSifList(), fetchModuleList()]);
+            renderRuntimeModes();
+            refreshSaveButton();
+        });
+        if (runtimeForm) {
+            runtimeForm.addEventListener('submit', async e => {
+                e.preventDefault();
+                await saveSettings();
+                updateRuntimeBadge();
+                runtimeDialog.close();
+            });
+        }
+        // 初始化 badge
+        loadSettings().then(updateRuntimeBadge);
+
+        window.getRuntimeConfig = function() { return runtimeState; };
         window.populateNodeScriptSelect = async function(select, currentPath) {
             select.innerHTML = '<option value="">加载中...</option>';
             const res = await fetch('/pipelines/scripts');
             const scripts = await res.json();
             select.innerHTML = '<option value="">请选择脚本...</option>';
             if (!scripts.length) {
-                select.innerHTML = '<option value="">~/.ripeline/scripts/ 下无 .R 文件</option>';
+                select.innerHTML = '<option value="">当前脚本目录下无 .R 文件</option>';
                 return;
             }
             window.pipelineScripts = scripts;

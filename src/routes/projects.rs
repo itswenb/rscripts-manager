@@ -1,5 +1,5 @@
 use super::auth::is_authenticated;
-use crate::models::{Project, ProjectFlow};
+use crate::models::{Project, ProjectFlow, RuntimeConfig};
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Path, State};
@@ -296,6 +296,16 @@ pub async fn run_flow(
     };
 
     let graph: serde_json::Value = serde_json::from_str(&flow.graph_data).unwrap_or_default();
+
+    // 加载运行时配置（来自全局 settings）并做检测/校验
+    let mut runtime = crate::routes::settings::load_runtime_config(&state.pool).await;
+    if let Err(e) = crate::slurm::resolve_auto(&mut runtime).await {
+        return Ok(Json(serde_json::json!({"error": e})));
+    }
+    if let Err(e) = crate::slurm::validate_runtime(&runtime).await {
+        return Ok(Json(serde_json::json!({"error": e})));
+    }
+
     let run_id = uuid::Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO flow_runs (id, flow_id, status) VALUES (?, ?, 'running')")
         .bind(&run_id)
@@ -307,7 +317,7 @@ pub async fn run_flow(
     let data_dir = state.data_dir.clone();
     let pool = state.pool.clone();
     tokio::spawn(async move {
-        execute_flow(graph, project.name, data_dir, run_id, pool).await;
+        execute_flow(graph, project.name, data_dir, run_id, pool, runtime).await;
     });
 
     Ok(Json(serde_json::json!({"ok": true})))
@@ -319,6 +329,7 @@ async fn execute_flow(
     data_dir: String,
     run_id: String,
     pool: sqlx::SqlitePool,
+    runtime: RuntimeConfig,
 ) {
     let nodes = graph
         .get("nodes")
@@ -490,6 +501,7 @@ async fn execute_flow(
             script_path,
             &format!("ripeline_{}_{}", run_id, node_idx),
             &input_files,
+            &runtime,
         )
         .await;
 

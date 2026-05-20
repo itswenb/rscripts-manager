@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ project.name }}{% endblock %}
 {% block content %}
-<div id="page-content" class="flex-1 flex flex-col overipeline-hidden">
+<div id="page-content" class="flex-1 flex flex-col overflow-hidden">
     <link rel="stylesheet" href="/static/style.css?v=20260520-terminal">
     <!-- Toolbar -->
     <div id="toolbar" class="h-12 border-b border-outline-variant bg-surface-container-lowest flex items-center justify-between px-4 shrink-0">
@@ -18,7 +18,7 @@
                     class="h-8 px-3 rounded-lg border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
                     <i data-lucide="plus" class="w-4 h-4"></i> 添加节点
                 </button>
-                <div id="add-node-menu" class="hidden absolute top-full right-0 mt-1 w-72 bg-surface-container-lowest border border-border rounded-lg shadow-lg z-50 py-1 max-h-80 overipeline-y-auto">
+                <div id="add-node-menu" class="hidden absolute top-full right-0 mt-1 w-72 bg-surface-container-lowest border border-border rounded-lg shadow-lg z-50 py-1 max-h-80 overflow-y-auto">
                     <div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-text">数据源</div>
                     <button onclick="addDataSourceNode(); document.getElementById('add-node-menu').classList.add('hidden')"
                         class="w-full text-left px-3 py-1.5 text-sm hover:bg-surface-container-low transition-colors flex items-center gap-2">
@@ -50,26 +50,26 @@
     </div>
 
     <!-- LiteGraph Canvas -->
-    <div id="graph-container" class="flex-1 relative overipeline-hidden">
+    <div id="graph-container" class="flex-1 relative overflow-hidden">
         <canvas id="graph-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;image-rendering:auto;"></canvas>
         <!-- Node Info Panel -->
-        <div id="node-info-panel" class="hidden absolute top-3 right-3 w-72 bg-surface-container-lowest/95 backdrop-blur border border-border rounded-xl shadow-lg z-40 overipeline-hidden">
+        <div id="node-info-panel" class="hidden absolute top-3 right-3 w-72 bg-surface-container-lowest/95 backdrop-blur border border-border rounded-xl shadow-lg z-40 overflow-hidden">
             <div class="px-4 py-2.5 border-b border-border bg-surface-container-low/50">
                 <h3 id="node-info-title" class="text-sm font-bold text-on-surface truncate"></h3>
                 <p id="node-info-file" class="text-[11px] text-muted-text font-mono truncate mt-0.5"></p>
             </div>
-            <div class="p-3 space-y-2 max-h-64 overipeline-y-auto text-xs">
+            <div class="p-3 space-y-2 max-h-64 overflow-y-auto text-xs">
                 <div id="node-info-inputs"></div>
                 <div id="node-info-outputs"></div>
             </div>
         </div>
         <!-- Floating Terminal -->
-        <div id="terminal-panel" class="fixed right-4 bottom-4 z-40 w-[800px] max-w-[calc(100vw-2rem)] rounded-xl border border-border shadow-lg overipeline-hidden bg-surface-container-lowest transition-all duration-200">
+        <div id="terminal-panel" class="fixed right-4 bottom-4 z-40 w-[800px] max-w-[calc(100vw-2rem)] rounded-xl border border-border shadow-lg overflow-hidden bg-surface-container-lowest transition-all duration-200">
             <div onclick="toggleTerminal()" class="flex items-center justify-between px-4 py-2 bg-surface-container-low cursor-pointer select-none">
                 <span class="text-xs font-bold text-on-surface flex items-center gap-1.5"><i data-lucide="terminal" class="w-3.5 h-3.5"></i> 运行日志</span>
                 <i data-lucide="chevron-down" id="terminal-toggle-icon" class="w-4 h-4 text-secondary"></i>
             </div>
-            <pre id="terminal-content" class="hidden h-[400px] w-full max-w-full box-border overipeline-y-auto overipeline-x-hidden whitespace-pre-wrap break-all p-3 text-xs font-mono text-on-surface bg-surface-container-lowest"></pre>
+            <pre id="terminal-content" class="hidden h-[400px] w-full max-w-full box-border overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-all p-3 text-xs font-mono text-on-surface bg-surface-container-lowest"></pre>
         </div>
     </div>
 </div>
@@ -81,7 +81,7 @@
             <h2 class="text-sm font-bold text-on-surface">节点输出</h2>
             <button onclick="this.closest('dialog').close()" class="text-secondary hover:text-on-surface"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
-        <div id="output-content" class="p-4 max-h-80 overipeline-y-auto text-sm"></div>
+        <div id="output-content" class="p-4 max-h-80 overflow-y-auto text-sm"></div>
     </div>
 </dialog>
 
@@ -92,7 +92,7 @@
             <h2 class="text-sm font-bold text-on-surface">选择数据文件</h2>
             <button onclick="this.closest('dialog').close()" class="text-secondary hover:text-on-surface"><i data-lucide="x" class="w-4 h-4"></i></button>
         </div>
-        <div id="file-picker-content" class="p-4 max-h-80 overipeline-y-auto text-sm"></div>
+        <div id="file-picker-content" class="p-4 max-h-80 overflow-y-auto text-sm"></div>
     </div>
 </dialog>
 
@@ -619,9 +619,13 @@ async function fetchLogs() {
 
 async function runAll() {
     await saveGraph();
-    const res = await fetch(`/projects/${PROJECT_ID}/run`, { method: 'POST' });
+    const res = await fetch(`/projects/${PROJECT_ID}/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    });
     if (!res.ok) { alert('启动运行失败'); return; }
     const data = await res.json();
+    if (data.error) { alert('运行失败：' + data.error); return; }
     if (data.ok) {
         setRunning(true);
         expandTerminal();

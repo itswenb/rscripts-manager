@@ -1,6 +1,7 @@
-use serde::Serialize;
+use crate::models::{ClusterRuntimeMode, RuntimeConfig, RuntimeMode};
+use crate::runtime;
 
-#[derive(Serialize, Clone, Default)]
+#[derive(serde::Serialize, Clone, Default)]
 pub struct ClusterStatus {
     pub idle: u32,
     pub alloc: u32,
@@ -40,19 +41,135 @@ async fn has_slurm() -> bool {
         .unwrap_or(false)
 }
 
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn build_script_command(
+    run_dir: &std::path::Path,
+    script_path: &str,
+    extra_args: &[String],
+    runtime: &RuntimeConfig,
+) -> String {
+    let mut parts = Vec::new();
+    let run_dir_q = shell_quote(&run_dir.display().to_string());
+    let script_q = shell_quote(script_path);
+    let arg_qs = extra_args.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
+
+    match runtime.cluster.mode {
+        ClusterRuntimeMode::Bundled => {
+            parts.push(format!("Rscript {} {}", script_q, run_dir_q));
+        }
+        ClusterRuntimeMode::Module => {
+            let module = runtime.cluster.module_name.trim();
+            if !module.is_empty() {
+                parts.push(format!("module load {}", shell_quote(module)));
+            }
+            parts.push(format!("Rscript {} {}", script_q, run_dir_q));
+        }
+        ClusterRuntimeMode::Singularity => {
+            let image = runtime.cluster.sif_path.trim();
+            let singularity_args = runtime.cluster.singularity_args.trim();
+            let mut singularity = String::from("singularity exec");
+            if !singularity_args.is_empty() {
+                singularity.push(' ');
+                singularity.push_str(singularity_args);
+            }
+            if !image.is_empty() {
+                singularity.push(' ');
+                singularity.push_str(&shell_quote(image));
+            }
+            singularity.push_str(&format!(" Rscript {} {}", script_q, run_dir_q));
+            parts.push(singularity);
+        }
+    }
+
+    if !arg_qs.is_empty() {
+        parts.push(arg_qs);
+    }
+
+    parts.join(" ")
+}
+
+pub async fn resolve_auto(runtime: &mut RuntimeConfig) -> Result<(), String> {
+    if runtime.mode != RuntimeMode::Auto {
+        return Ok(());
+    }
+    let det = runtime::detect().await;
+    let has_sif = !runtime.cluster.sif_path.trim().is_empty();
+    let has_module = !runtime.cluster.module_name.trim().is_empty();
+
+    if det.sinfo && det.singularity && has_sif {
+        runtime.mode = RuntimeMode::ClusterSingularity;
+        runtime.cluster.mode = ClusterRuntimeMode::Singularity;
+    } else if det.sinfo && det.module && has_module {
+        runtime.mode = RuntimeMode::ClusterModule;
+        runtime.cluster.mode = ClusterRuntimeMode::Module;
+    } else if det.sinfo {
+        runtime.mode = RuntimeMode::ClusterBundled;
+        runtime.cluster.mode = ClusterRuntimeMode::Bundled;
+    } else if det.host_rscript {
+        runtime.mode = RuntimeMode::Host;
+    } else {
+        return Err("无可用运行环境（自动检测失败）".into());
+    }
+    Ok(())
+}
+
+pub async fn validate_runtime(runtime: &RuntimeConfig) -> Result<(), String> {
+    let det = runtime::detect().await;
+    match runtime.mode {
+        RuntimeMode::Host => {
+            if !det.host_rscript {
+                return Err("当前宿主机未检测到 Rscript".into());
+            }
+        }
+        RuntimeMode::ClusterBundled => {
+            if !det.sinfo {
+                return Err("未检测到 SLURM (sinfo)".into());
+            }
+        }
+        RuntimeMode::ClusterModule => {
+            if !det.sinfo {
+                return Err("未检测到 SLURM (sinfo)".into());
+            }
+            if !det.module {
+                return Err("未检测到 module 系统".into());
+            }
+            if runtime.cluster.module_name.trim().is_empty() {
+                return Err("未配置 module 名称".into());
+            }
+        }
+        RuntimeMode::ClusterSingularity => {
+            if !det.sinfo {
+                return Err("未检测到 SLURM (sinfo)".into());
+            }
+            if !det.singularity {
+                return Err("未检测到 singularity".into());
+            }
+            if runtime.cluster.sif_path.trim().is_empty() {
+                return Err("未选择 .sif 镜像".into());
+            }
+        }
+        RuntimeMode::Auto => {}
+    }
+    Ok(())
+}
+
 pub async fn submit_job(
     run_dir: &std::path::Path,
     script_path: &str,
     job_name: &str,
     extra_args: &[String],
+    runtime: &RuntimeConfig,
 ) -> Result<String, std::io::Error> {
-    if has_slurm().await {
-        let args_str = extra_args.iter().map(|a| format!("'{}'", a.replace('\'', "'\\''"))).collect::<Vec<_>>().join(" ");
-        let cmd = if args_str.is_empty() {
-            format!("cd {} && Rscript {} {}", run_dir.display(), script_path, run_dir.display())
-        } else {
-            format!("cd {} && Rscript {} {} {}", run_dir.display(), script_path, run_dir.display(), args_str)
-        };
+    let command = build_script_command(run_dir, script_path, extra_args, runtime);
+    let use_cluster = matches!(
+        runtime.mode,
+        RuntimeMode::ClusterSingularity | RuntimeMode::ClusterModule | RuntimeMode::ClusterBundled
+    );
+
+    if use_cluster && has_slurm().await {
         let output = tokio::process::Command::new("sbatch")
             .arg("--job-name")
             .arg(job_name)
@@ -61,7 +178,7 @@ pub async fn submit_job(
             .arg("--error")
             .arg(run_dir.join("stderr.log"))
             .arg("--wrap")
-            .arg(&cmd)
+            .arg(format!("bash -lc {}", shell_quote(&command)))
             .output()
             .await?;
 
@@ -71,13 +188,9 @@ pub async fn submit_job(
     } else {
         let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(run_dir.join("stdout.log"))?;
         let stderr_file = std::fs::File::create(run_dir.join("stderr.log"))?;
-        let mut cmd = tokio::process::Command::new("Rscript");
-        cmd.arg(script_path);
-        cmd.arg(run_dir.as_os_str());
-        for arg in extra_args {
-            cmd.arg(arg);
-        }
-        let child = cmd
+        let child = tokio::process::Command::new("bash")
+            .arg("-lc")
+            .arg(&command)
             .current_dir(run_dir)
             .stdout(std::process::Stdio::from(stdout_file))
             .stderr(std::process::Stdio::from(stderr_file))
