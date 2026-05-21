@@ -9,10 +9,11 @@
         <div class="flex items-center gap-4 mt-2 text-xs text-muted-text">
             <span class="flex items-center gap-1"><i data-lucide="log-in" class="w-3 h-3"></i> {{ node.input_count }} 输入</span>
             <span class="flex items-center gap-1"><i data-lucide="log-out" class="w-3 h-3"></i> {{ node.output_count }} 输出</span>
+            {% if !node.default_sif.is_empty() %}<span class="flex items-center gap-1 text-primary"><i data-lucide="box" class="w-3 h-3"></i> {{ node.default_sif }}</span>{% endif %}
         </div>
     </div>
     <div class="flex items-center gap-2">
-        <button type="button" data-edit-node data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" data-script-path="{{ node.script_path }}"
+        <button type="button" data-edit-node data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" data-script-path="{{ node.script_path }}" data-default-sif="{{ node.default_sif }}"
             class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:text-primary hover:border-primary transition-colors">
             编辑
         </button>

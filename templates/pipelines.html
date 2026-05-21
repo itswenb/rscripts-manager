@@ -27,10 +27,11 @@
                 <div class="flex items-center gap-4 mt-2 text-xs text-muted-text">
                     <span class="flex items-center gap-1"><i data-lucide="log-in" class="w-3 h-3"></i> {{ node.input_count }} 输入</span>
                     <span class="flex items-center gap-1"><i data-lucide="log-out" class="w-3 h-3"></i> {{ node.output_count }} 输出</span>
+                    {% if !node.default_sif.is_empty() %}<span class="flex items-center gap-1 text-primary"><i data-lucide="box" class="w-3 h-3"></i> {{ node.default_sif }}</span>{% endif %}
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <button type="button" data-edit-node data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" data-script-path="{{ node.script_path }}"
+                <button type="button" data-edit-node data-node-id="{{ node.id }}" data-node-name="{{ node.name }}" data-script-path="{{ node.script_path }}" data-default-sif="{{ node.default_sif }}"
                     class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:text-primary hover:border-primary transition-colors">
                     编辑
                 </button>
@@ -52,12 +53,8 @@
     </div>
 </div>
 
-<dialog id="create-node-dialog" class="rounded-xl p-0 w-full max-w-lg backdrop:bg-black/30 border border-border shadow-lg">
-    <div class="bg-surface-container-lowest rounded-xl">
-        <div class="px-6 py-4 border-b border-border">
-            <h2 id="node-dialog-title" class="text-lg font-bold text-on-surface">添加脚本节点</h2>
-        </div>
-        <form id="node-dialog-form" hx-post="/pipelines" hx-target="#node-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); this.closest('dialog').close(); lucide.createIcons();" class="p-6 space-y-4">
+<sl-dialog id="create-node-dialog" label="添加脚本节点" style="--width: 34rem;">
+        <form id="node-dialog-form" hx-post="/pipelines" hx-target="#node-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); window.hideShoelaceDialog(this.closest('sl-dialog')); lucide.createIcons();" class="space-y-4">
             <div>
                 <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">节点名称</label>
                 <input type="text" name="name" required
@@ -70,7 +67,21 @@
                     <option value="">加载中...</option>
                 </select>
                 <p class="text-xs text-muted-text mt-1">从 ~/.ripeline/scripts/ 目录自动扫描，系统将解析脚本注解获取参数和输入输出定义</p>
-                <details id="io-help" open class="mt-2 text-xs text-muted-text">
+            </div>
+            <div>
+                <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide flex items-center gap-1">
+                    <i data-lucide="box" class="w-3 h-3"></i> SIF 镜像（可选）
+                </label>
+                <div class="flex gap-2">
+                    <input type="text" id="sif-dir-input" placeholder="SIF 目录" value="~/.ripeline/singularity_images/"
+                        class="flex-1 bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 font-mono focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
+                    <select id="sif-select" class="flex-1 bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                <input type="hidden" name="default_sif" id="sif-hidden-input">
+                <p class="text-xs text-muted-text mt-1">选择 Singularity 容器镜像，集群模式下该节点将使用此镜像运行（覆盖全局设置）</p>
+                <details id="io-help" class="mt-2 text-xs text-muted-text">
                     <summary class="cursor-pointer hover:text-on-surface transition-colors">如何定义输入输出？</summary>
                     <pre class="mt-2 p-3 bg-surface-container-low rounded-lg font-mono text-[11px] leading-relaxed whitespace-pre-wrap">#' @title 脚本标题
 #' @description 脚本描述
@@ -98,26 +109,147 @@ output_dir &lt;- args[1]       # 系统注入，无需声明
 deseq_result &lt;- args[2]     # 第一个 @input
 threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
                 </details>
+                <details id="ai-prompt-help" class="mt-2 text-xs text-muted-text">
+                    <summary class="cursor-pointer hover:text-on-surface transition-colors">使用 AI 将已有 R 脚本转换成平台可用版本？</summary>
+                    <div class="mt-2 rounded-lg border border-outline-variant bg-surface-container-low p-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <p class="text-xs text-muted-text">把已有 R 脚本贴给 AI，让它改写成当前系统可识别的规范格式。</p>
+                            <button type="button" id="copy-ai-prompt"
+                                class="shrink-0 rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:border-primary hover:text-primary">
+                                复制 Prompt
+                            </button>
+                        </div>
+                        <textarea id="ai-prompt-text" readonly
+                            class="mt-3 h-64 w-full rounded-lg border border-outline bg-surface px-3 py-2 font-mono text-[11px] leading-relaxed text-on-surface focus:outline-none">你是一个 R 脚本规范化助手。你的任务是：把我提供的现有 R 脚本，改写成可被当前平台自动识别的规范化 R 脚本，但不要改变脚本的核心分析逻辑、算法和输出语义。
+
+请严格遵守下面的规则：
+
+1. 保留原始分析逻辑
+- 不要擅自修改统计方法、过滤条件、绘图含义、模型参数或结果解释。
+- 你可以重构参数读取、输出路径处理、文件写出方式、注释和代码组织。
+
+2. 在脚本文件顶部补充平台注解，格式必须使用 roxygen 风格注释：
+- `#' @title 脚本标题`
+- `#' @description 脚本描述`
+- `#' @input name type 描述`
+- `#' @output name type 描述`
+
+3. `@input` 与 `@output` 的规则：
+- 输入格式：`#' @input 参数名 类型 参数说明`
+- 输出格式：`#' @output 输出名 类型 输出说明`
+- 类型只能优先从这些值里选择：
+  - 文件类型：`file` `table` `image` `pdf` `rdata`
+  - 标量类型：`string` `numeric` `boolean`
+- 如果一个标量参数有默认值，写成：`类型:默认值`
+  - 例如：`numeric:0.05`
+  - 例如：`string:human`
+- `table` 用于 csv/tsv/xls/xlsx 等表格输入
+- `image` 用于 png/jpg/jpeg/svg 等图片输出
+- `rdata` 用于 rds/RData
+
+4. 参数传递约定必须改写为以下形式：
+- 使用 `args <- commandArgs(trailingOnly = TRUE)`
+- `args[1]` 永远是平台注入的输出目录 `output_dir`
+- 从 `args[2]` 开始，按 `@input` 声明顺序依次读取参数
+- 例如：
+  ```r
+  args &lt;- commandArgs(trailingOnly = TRUE)
+  output_dir &lt;- args[1]
+  input_file &lt;- args[2]
+  threshold &lt;- as.numeric(args[3])
+  use_cache &lt;- as.logical(args[4])
+  ```
+
+5. 所有输出文件都必须写入 `output_dir`
+- 不要写到当前工作目录
+- 不要写死绝对路径
+- 输出文件名应明确、稳定、可读
+- 例如：
+  ```r
+  write.csv(res, file.path(output_dir, "deg_results.csv"), row.names = FALSE)
+  ggsave(file.path(output_dir, "volcano_plot.pdf"), plot = p, width = 8, height = 6)
+  saveRDS(obj, file.path(output_dir, "fit.rds"))
+  ```
+
+6. `@output` 必须与真实产物对应
+- 如果脚本最终会生成 3 个主要结果文件，就写出 3 个 `@output`
+- `@output` 名称要语义化，不能随便写 `out1` `out2`
+- 如果原脚本产出很多中间文件，只保留对用户最重要、最稳定、最应该暴露给流程系统的输出
+
+7. 返回结果要求
+- 只返回“改写后的完整 R 脚本”
+- 不要解释
+- 不要摘要
+- 不要 markdown 说明
+- 不要在脚本外再说任何话
+
+8. 如果原脚本信息不完整，请按最保守方式处理
+- 根据变量名、读写文件方式、绘图保存方式，合理推断输入输出
+- 不确定时优先保持原逻辑，并补充最小必要注解
+- 不要虚构不存在的分析步骤
+
+现在我会给你原始 R 脚本，请直接输出改写后的完整规范化版本。</textarea>
+                    </div>
+                </details>
                 <div id="script-meta" class="mt-3 text-xs hidden">
                     <div id="script-desc" class="text-secondary mb-2 leading-relaxed"></div>
                     <div id="script-io" class="bg-surface-container-low rounded-lg p-3 space-y-2"></div>
                 </div>
             </div>
-            <div class="flex justify-end gap-2 pt-2">
-                <button type="button" onclick="this.closest('dialog').close()"
-                    class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
-                <button id="node-dialog-submit" type="submit"
-                    class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">添加</button>
-            </div>
         </form>
-    </div>
-</dialog>
+        <div slot="footer" class="flex justify-end gap-2">
+            <button type="button" onclick="window.hideShoelaceDialog('create-node-dialog')"
+                class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
+            <button id="node-dialog-submit" type="submit" form="node-dialog-form"
+                class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">添加</button>
+        </div>
+</sl-dialog>
 <script>
 (function() {
     const dialog = document.getElementById('create-node-dialog');
     const select = document.getElementById('script-select');
     const meta = document.getElementById('script-meta');
     dialog.querySelector('input[name="name"]').addEventListener('input', function() { delete this.dataset.auto; });
+
+    // SIF file picker
+    const sifDirInput = document.getElementById('sif-dir-input');
+    const sifSelect = document.getElementById('sif-select');
+    const sifHidden = document.getElementById('sif-hidden-input');
+
+    async function loadSifList(dir) {
+        if (!dir) { sifSelect.innerHTML = '<option value="">请输入目录</option>'; return; }
+        try {
+            const res = await fetch('/runtime/sif-list?dir=' + encodeURIComponent(dir));
+            const data = await res.json();
+            const files = data.files || [];
+            sifSelect.innerHTML = '<option value="">使用全局默认</option>';
+            files.forEach(f => {
+                const full = dir.replace(/\/$/, '') + '/' + f;
+                const opt = document.createElement('option');
+                opt.value = full;
+                opt.textContent = f;
+                sifSelect.appendChild(opt);
+            });
+            if (!files.length) sifSelect.innerHTML += '<option value="" disabled>未找到 .sif 文件</option>';
+        } catch (_) { sifSelect.innerHTML = '<option value="">加载失败</option>'; }
+    }
+    sifDirInput.addEventListener('change', () => loadSifList(sifDirInput.value.trim()));
+    sifSelect.addEventListener('change', () => { sifHidden.value = sifSelect.value; });
+    loadSifList(sifDirInput.value.trim());
+
+    // Expose for openEditDialog to pre-populate
+    window.setSifValue = function(sifPath) {
+        if (!sifPath) { sifHidden.value = ''; sifSelect.value = ''; return; }
+        sifHidden.value = sifPath;
+        // Try to extract directory and select the file
+        const lastSlash = sifPath.lastIndexOf('/');
+        if (lastSlash > 0) {
+            const dir = sifPath.substring(0, lastSlash);
+            const file = sifPath.substring(lastSlash + 1);
+            sifDirInput.value = dir + '/';
+            loadSifList(dir).then(() => { sifSelect.value = sifPath; });
+        }
+    };
 
     async function loadScripts() {
         const res = await fetch('/pipelines/scripts');
@@ -139,15 +271,22 @@ threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
     select.addEventListener('change', () => {
         const scripts = window.pipelineScripts || [];
         const s = scripts.find(x => x.path === select.value);
-        if (!s) { meta.classList.add('hidden'); document.getElementById('io-help').open = true; return; }
+        if (!s) { meta.classList.add('hidden'); return; }
         meta.classList.remove('hidden');
-        document.getElementById('io-help').open = !(s.inputs.length || s.outputs.length);
         const nameInput = dialog.querySelector('input[name="name"]');
         if (!nameInput.value || nameInput.dataset.auto) {
             nameInput.value = s.title || s.description || s.filename;
             nameInput.dataset.auto = '1';
         }
-        document.getElementById('script-desc').textContent = s.description || '';
+        const hasStructuredMeta = Boolean(s.title || s.description || s.inputs.length || s.outputs.length);
+        const desc = document.getElementById('script-desc');
+        if (hasStructuredMeta) {
+            desc.className = 'text-secondary mb-2 leading-relaxed';
+            desc.textContent = s.description || '';
+        } else {
+            desc.className = 'mb-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 leading-relaxed text-warning';
+            desc.textContent = '当前脚本没有匹配到标题、描述、输入或输出定义，还不是平台可直接识别的版本。请使用 AI Prompt 先将脚本转换成平台可用格式，再重新导入。';
+        }
         let ioHtml = '';
         if (s.inputs.length) {
             ioHtml += '<div class="flex items-center gap-2 mb-1"><span class="text-[10px] font-bold uppercase tracking-wider text-secondary">输入</span><span class="flex-1 border-t border-border"></span></div>';
@@ -166,7 +305,26 @@ threshold &lt;- as.numeric(args[3])  # 第二个 @input</pre>
             });
             ioHtml += '</div>';
         }
+        if (!ioHtml) {
+            ioHtml = '<div class="rounded-lg border border-outline-variant bg-surface px-3 py-2 text-muted-text">没有解析到任何输入输出定义。</div>';
+        }
         document.getElementById('script-io').innerHTML = ioHtml;
+    });
+
+    const copyButton = document.getElementById('copy-ai-prompt');
+    const promptText = document.getElementById('ai-prompt-text');
+    copyButton.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(promptText.value);
+            const originalText = copyButton.textContent;
+            copyButton.textContent = '已复制';
+            setTimeout(() => {
+                copyButton.textContent = originalText;
+            }, 1200);
+        } catch (_) {
+            promptText.focus();
+            promptText.select();
+        }
     });
 })();
 

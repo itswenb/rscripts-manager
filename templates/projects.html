@@ -8,7 +8,7 @@
             <h1 class="text-[30px] font-bold text-on-surface leading-tight tracking-tight">项目</h1>
             <p class="text-sm text-muted-text mt-1">管理和监控所有分析项目</p>
         </div>
-        <button onclick="document.getElementById('create-dialog').showModal()"
+        <button onclick="window.showShoelaceDialog('create-dialog')"
             class="bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-sm whitespace-nowrap active:scale-95 duration-100">
             <i data-lucide="plus" class="w-4 h-4"></i>
             新建项目
@@ -46,30 +46,25 @@
     </div>
 </div>
 
-<dialog id="create-dialog" class="rounded-xl p-0 w-full max-w-md backdrop:bg-black/30 border border-border shadow-lg">
-    <div class="bg-surface-container-lowest rounded-xl">
-        <div class="px-6 py-4 border-b border-border">
-            <h2 class="text-lg font-bold text-on-surface">新建项目</h2>
+<sl-dialog id="create-dialog" label="新建项目" style="--width: 28rem;">
+    <form id="create-project-form" hx-post="/projects" hx-target="#project-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); window.hideShoelaceDialog(this.closest('sl-dialog')); lucide.createIcons();" class="space-y-4">
+        <div>
+            <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">项目名称</label>
+            <input type="text" name="name" required
+                class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
         </div>
-        <form hx-post="/projects" hx-target="#project-list" hx-swap="innerHTML" hx-on::after-request="this.reset(); this.closest('dialog').close(); lucide.createIcons();" class="p-6 space-y-4">
-            <div>
-                <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">项目名称</label>
-                <input type="text" name="name" required
-                    class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
-            </div>
-            <div>
-                <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">描述</label>
-                <input type="text" name="description"
-                    class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
-            </div>
-            <div class="flex justify-end gap-2 pt-2">
-                <button type="button" onclick="this.closest('dialog').close()"
-                    class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
-                <button type="submit"
-                    class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">创建</button>
-            </div>
-        </form>
+        <div>
+            <label class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide">描述</label>
+            <input type="text" name="description"
+                class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors">
+        </div>
+    </form>
+    <div slot="footer" class="flex justify-end gap-2">
+        <button type="button" onclick="window.hideShoelaceDialog('create-dialog')"
+            class="px-4 py-2 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">取消</button>
+        <button type="submit" form="create-project-form"
+            class="px-4 py-2 bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg transition-colors shadow-sm">创建</button>
     </div>
-</dialog>
+</sl-dialog>
 </div>
 {% endblock %}

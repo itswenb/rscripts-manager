@@ -61,6 +61,19 @@
             <div class="p-3 space-y-2 max-h-64 overflow-y-auto text-xs">
                 <div id="node-info-inputs"></div>
                 <div id="node-info-outputs"></div>
+                <div id="node-info-sif" class="mt-2 pt-2 border-t border-border hidden">
+                    <div class="font-semibold text-secondary mb-1 flex items-center gap-1">
+                        <i data-lucide="box" class="w-3 h-3"></i> SIF 镜像
+                    </div>
+                    <div class="flex gap-1.5 mb-1">
+                        <input id="node-info-sif-dir" type="text" value="~/.ripeline/singularity_images/" placeholder="SIF 目录"
+                            class="flex-1 px-2 py-1 text-xs bg-surface-container-low border border-border rounded font-mono text-on-surface placeholder:text-muted-text outline-none focus:border-primary" />
+                    </div>
+                    <select id="node-info-sif-select"
+                        class="w-full px-2 py-1 text-xs bg-surface-container-low border border-border rounded text-on-surface outline-none focus:border-primary">
+                        <option value="">使用全局默认</option>
+                    </select>
+                </div>
             </div>
         </div>
         <!-- Floating Terminal -->
@@ -75,31 +88,28 @@
 </div>
 
 <!-- Output Viewer Dialog -->
-<dialog id="output-dialog" class="rounded-xl p-0 w-full max-w-lg backdrop:bg-black/30 border border-border shadow-lg">
-    <div class="bg-surface-container-lowest rounded-xl">
-        <div class="px-6 py-4 border-b border-border flex items-center justify-between">
-            <h2 class="text-sm font-bold text-on-surface">节点输出</h2>
-            <button onclick="this.closest('dialog').close()" class="text-secondary hover:text-on-surface"><i data-lucide="x" class="w-4 h-4"></i></button>
-        </div>
-        <div id="output-content" class="p-4 max-h-80 overflow-y-auto text-sm"></div>
+<sl-dialog id="output-dialog" label="节点输出" style="--width: 32rem;">
+    <div id="output-content" class="max-h-80 overflow-y-auto text-sm"></div>
+</sl-dialog>
+
+<!-- Image Preview Dialog -->
+<sl-dialog id="image-preview-dialog" label="预览" style="--width: 90vw;">
+    <div class="flex items-center justify-center min-h-0" style="max-height:80vh;">
+        <img id="image-preview-img" class="object-contain max-w-full max-h-[80vh]" src="" alt="preview" style="display:none;" />
+        <iframe id="image-preview-pdf" class="w-full border-0" style="height:80vh;display:none;" src=""></iframe>
     </div>
-</dialog>
+</sl-dialog>
 
 <!-- File Picker Dialog -->
-<dialog id="file-picker-dialog" class="rounded-xl p-0 w-full max-w-md backdrop:bg-black/30 border border-border shadow-lg">
-    <div class="bg-surface-container-lowest rounded-xl">
-        <div class="px-6 py-4 border-b border-border flex items-center justify-between">
-            <h2 class="text-sm font-bold text-on-surface">选择数据文件</h2>
-            <button onclick="this.closest('dialog').close()" class="text-secondary hover:text-on-surface"><i data-lucide="x" class="w-4 h-4"></i></button>
-        </div>
-        <div id="file-picker-content" class="p-4 max-h-80 overflow-y-auto text-sm"></div>
-    </div>
-</dialog>
+<sl-dialog id="file-picker-dialog" label="选择数据文件" style="--width: 28rem;">
+    <div id="file-picker-content" class="max-h-80 overflow-y-auto text-sm"></div>
+</sl-dialog>
 
 {% endblock %}
 
 {% block scripts %}
 <link rel="stylesheet" href="/static/vendor/litegraph/litegraph.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 .lgraphcanvas { background-color: #f8f9fa !important; }
 .litegraph .litecontextmenu { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
@@ -109,14 +119,44 @@
 </style>
 <script src="/static/vendor/litegraph/litegraph.min.js"></script>
 <script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 const PROJECT_ID = "{{ project.id }}";
 let graph = new LGraph();
 let canvas;
 let availableScripts = [];
 let saveTimeout = null;
-const TYPE_COLORS = {
-    file: "#6750a4", table: "#1565c0", image: "#e65100",
-    pdf: "#c62828", rdata: "#6a1b9a", string: "#546e7a", numeric: "#00838f", boolean: "#4e342e",
+// ── Unified node theme ── single source of truth for all node colours
+const NODE_THEME = {
+    // Per-state header colours (applied via node.color)
+    status: {
+        idle:      null,                              // pure white — no overlay
+        completed: "rgba(129, 199, 132, 0.35)",       // light green
+        failed:    "rgba(239, 154, 154, 0.40)",       // light red
+    },
+    // Running pulse animation — sine-wave between from → to
+    runningAnim: {
+        pulseFrom: [66, 165, 180],    // dark blue   rgb
+        pulseTo:   [66, 165, 245],   // light blue  rgb
+    },
+    // Data-type colours for connection slots + links
+    types: {
+        file: "#6750a4", table: "#1565c0", image: "#e65100",
+        pdf: "#c62828", rdata: "#6a1b9a", string: "#546e7a", numeric: "#00838f", boolean: "#4e342e",
+    },
+    // LiteGraph global defaults
+    litegraph: {
+        canvasBg:      "#f8f9fa",
+        nodeColor:     "#ffffff",
+        bgColor:       "#ffffff",
+        boxColor:      "#6750a4",
+        titleColor:    "#1c1b1f",
+        textColor:     "#1c1b1f",
+        widgetBg:      "#f0f0f3",
+        widgetOutline: "#c4c7c5",
+        widgetText:    "#1c1b1f",
+        linkColor:     "#6750a4",
+        shadow:        "rgba(0,0,0,0.08)",
+    },
 };
 
 // Localize LiteGraph context menu
@@ -152,32 +192,33 @@ async function initGraph() {
 
     canvas = new LGraphCanvas(canvasEl, graph);
     canvas.background_image = null;
-    canvas.clear_background_color = "#f8f9fa";
+    const C = NODE_THEME.litegraph;
+    canvas.clear_background_color = C.canvasBg;
     canvas.render_canvas_border = false;
     canvas.highquality_render = true;
-    canvas.node_title_color = "#1c1b1f";
-    LiteGraph.NODE_DEFAULT_COLOR = "#ffffff";
-    LiteGraph.NODE_DEFAULT_BGCOLOR = "#ffffff";
-    LiteGraph.NODE_DEFAULT_BOXCOLOR = "#6750a4";
-    LiteGraph.NODE_TEXT_COLOR = "#1c1b1f";
-    LiteGraph.WIDGET_BGCOLOR = "#f0f0f3";
-    LiteGraph.WIDGET_OUTLINE_COLOR = "#c4c7c5";
-    LiteGraph.WIDGET_TEXT_COLOR = "#1c1b1f";
-    LiteGraph.NODE_SELECTED_TITLE_COLOR = "#1c1b1f";
-    LiteGraph.LINK_COLOR = "#6750a4";
-    LiteGraph.DEFAULT_SHADOW_COLOR = "rgba(0,0,0,0.08)";
+    canvas.node_title_color = C.titleColor;
+    LiteGraph.NODE_DEFAULT_COLOR = C.nodeColor;
+    LiteGraph.NODE_DEFAULT_BGCOLOR = C.bgColor;
+    LiteGraph.NODE_DEFAULT_BOXCOLOR = C.boxColor;
+    LiteGraph.NODE_TEXT_COLOR = C.textColor;
+    LiteGraph.WIDGET_BGCOLOR = C.widgetBg;
+    LiteGraph.WIDGET_OUTLINE_COLOR = C.widgetOutline;
+    LiteGraph.WIDGET_TEXT_COLOR = C.widgetText;
+    LiteGraph.NODE_SELECTED_TITLE_COLOR = C.titleColor;
+    LiteGraph.LINK_COLOR = C.linkColor;
+    LiteGraph.DEFAULT_SHADOW_COLOR = C.shadow;
 
-    Object.entries(TYPE_COLORS).forEach(([type, color]) => {
+    Object.entries(NODE_THEME.types).forEach(([type, color]) => {
         LGraphCanvas.link_type_colors[type] = color;
     });
 
-    function resizeHiDPI() {
-        const dpr = window.devicePixelRatio || 1;
+    // ── Canvas sizing ──
+    function resizeCanvas() {
         const rect = container.getBoundingClientRect();
         canvasEl.style.width = rect.width + 'px';
         canvasEl.style.height = rect.height + 'px';
-        canvasEl.width = Math.floor(rect.width * dpr);
-        canvasEl.height = Math.floor(rect.height * dpr);
+        canvasEl.width = rect.width;
+        canvasEl.height = rect.height;
         if (canvas.bgcanvas && canvas.bgcanvas !== canvasEl) {
             canvas.bgcanvas.width = canvasEl.width;
             canvas.bgcanvas.height = canvasEl.height;
@@ -186,23 +227,67 @@ async function initGraph() {
         canvas.setDirty(true, true);
     }
 
-    resizeHiDPI();
-    window.addEventListener('resize', resizeHiDPI);
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    // ── Remember canvas viewport across sessions ──
+    const VP_KEY = `viewport_${PROJECT_ID}`;
+    const saveViewport = () => {
+        try {
+            localStorage.setItem(VP_KEY, JSON.stringify({
+                offset: canvas.ds.offset.slice(),
+                scale: canvas.ds.scale,
+            }));
+        } catch (_) {}
+    };
+    const restoreScale = () => {
+        try {
+            const raw = localStorage.getItem(VP_KEY);
+            if (!raw) return;
+            const vp = JSON.parse(raw);
+            if (vp && typeof vp.scale === 'number') {
+                canvas.ds.scale = vp.scale;
+            }
+        } catch (_) {}
+    };
+
+    // Fit content into view with 10px margin from top-left
+    const fitContent = () => {
+        const nodes = graph._nodes;
+        if (!nodes.length) return;
+        let minX = Infinity, minY = Infinity;
+        for (const n of nodes) {
+            if (n.pos[0] < minX) minX = n.pos[0];
+            if (n.pos[1] < minY) minY = n.pos[1];
+        }
+        const marginTop = 48 + 24;   // clear the 48px toolbar + padding
+        const marginLeft = 24;       // padding
+        canvas.ds.offset[0] = marginLeft / canvas.ds.scale - minX;
+        canvas.ds.offset[1] = marginTop / canvas.ds.scale - minY;
+    };
+
+    restoreScale();
+    window.addEventListener('beforeunload', saveViewport);
+
+    // Periodically save viewport
+    setInterval(saveViewport, 1000);
 
     await registerNodeTypes();
     await loadGraph();
+    fitContent();
     graph.config = graph.config || {};
     graph.config.links_ontop = true;
     graph.start();
 
-    // Pulse animation for running nodes
+    // Running node header pulse animation — sine-wave between dark ↔ light blue
     const _origDrawNode = LGraphCanvas.prototype.drawNode;
     LGraphCanvas.prototype.drawNode = function(node, ctx) {
         if (node._running) {
-            const t = (Math.sin(performance.now() / 400) + 1) / 2;
-            const r = Math.round(13 + t * (66 - 13));
-            const g = Math.round(71 + t * (165 - 71));
-            const b = Math.round(161 + t * (245 - 161));
+            const A = NODE_THEME.runningAnim;
+            const t = (Math.sin(performance.now() / 400) + 1) / 2; // 0 → 1
+            const r = Math.round(A.pulseFrom[0] + t * (A.pulseTo[0] - A.pulseFrom[0]));
+            const g = Math.round(A.pulseFrom[1] + t * (A.pulseTo[1] - A.pulseFrom[1]));
+            const b = Math.round(A.pulseFrom[2] + t * (A.pulseTo[2] - A.pulseFrom[2]));
             node.color = `rgb(${r},${g},${b})`;
             this.setDirty(true);
         }
@@ -228,15 +313,64 @@ async function initGraph() {
         }
         document.getElementById('node-info-inputs').innerHTML = inputsHtml;
         document.getElementById('node-info-outputs').innerHTML = outputsHtml;
+        // SIF picker
+        const sifWrap = document.getElementById('node-info-sif');
+        const sifDir = document.getElementById('node-info-sif-dir');
+        const sifSel = document.getElementById('node-info-sif-select');
+        sifWrap.classList.remove('hidden');
+        sifSel._selectedNode = node;
+        const curSif = node.properties.sif || '';
+        if (curSif) {
+            const lastSlash = curSif.lastIndexOf('/');
+            if (lastSlash > 0) {
+                sifDir.value = curSif.substring(0, lastSlash) + '/';
+                loadNodeSifList(sifDir.value.trim(), curSif);
+            }
+        } else {
+            loadNodeSifList(sifDir.value.trim(), '');
+        }
         panel.classList.remove('hidden');
+        lucide.createIcons();
     };
     canvas.onNodeDeselected = function() {
         document.getElementById('node-info-panel').classList.add('hidden');
     };
 
+    // SIF picker for node info panel
+    async function loadNodeSifList(dir, selectVal) {
+        const sifSel = document.getElementById('node-info-sif-select');
+        if (!dir) { sifSel.innerHTML = '<option value="">请输入目录</option>'; return; }
+        try {
+            const res = await fetch('/runtime/sif-list?dir=' + encodeURIComponent(dir));
+            const data = await res.json();
+            const files = data.files || [];
+            sifSel.innerHTML = '<option value="">使用全局默认</option>';
+            files.forEach(f => {
+                const full = dir.replace(/\/$/, '') + '/' + f;
+                const opt = document.createElement('option');
+                opt.value = full;
+                opt.textContent = f;
+                sifSel.appendChild(opt);
+            });
+            if (!files.length) sifSel.innerHTML += '<option value="" disabled>未找到 .sif 文件</option>';
+            if (selectVal) sifSel.value = selectVal;
+        } catch (_) { sifSel.innerHTML = '<option value="">加载失败</option>'; }
+    }
+    document.getElementById('node-info-sif-dir').addEventListener('change', function() {
+        loadNodeSifList(this.value.trim(), '');
+    });
+    document.getElementById('node-info-sif-select').addEventListener('change', function() {
+        const node = this._selectedNode;
+        if (node) {
+            node.properties.sif = this.value.trim();
+            node.setDirtyCanvas(true);
+            graph.onAfterChange();
+        }
+    });
+
     graph.onAfterChange = () => {
         clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(saveGraph, 2000);
+        saveTimeout = setTimeout(() => { saveGraph(); saveViewport(); }, 2000);
     };
 }
 
@@ -257,13 +391,21 @@ async function registerNodeTypes() {
             self.properties.output_type = v;
             self.outputs[0].type = v;
             self.outputs[0].name = v;
-            self.outputs[0].color_on = TYPE_COLORS[v];
-            self.outputs[0].color_off = TYPE_COLORS[v];
+            self.outputs[0].color_on = NODE_THEME.types[v];
+            self.outputs[0].color_off = NODE_THEME.types[v];
             self.setDirtyCanvas(true);
         }, { values: fileTypes });
-        this.outputs[0].color_on = TYPE_COLORS["file"];
-        this.outputs[0].color_off = TYPE_COLORS["file"];
+        this.outputs[0].color_on = NODE_THEME.types["file"];
+        this.outputs[0].color_off = NODE_THEME.types["file"];
+        this.refreshSize();
     }
+    DataSourceNode.prototype.refreshSize = function() {
+        const label = this.properties.file_path
+            ? "数据源: " + this.properties.file_path.split('/').pop()
+            : "数据源";
+        const estimatedWidth = Math.max(220, Math.min(520, label.length * 14 + 40));
+        this.size = [estimatedWidth, 100];
+    };
     DataSourceNode.prototype.onDblClick = function() { openFilePicker(this); };
     DataSourceNode.prototype.onDrawForeground = function(ctx) {
         if (this.properties.file_path) {
@@ -289,8 +431,8 @@ async function registerNodeTypes() {
         this.addWidget("combo", "类型", "string", (v) => {
             self.properties.type = v;
             self.outputs[0].type = v;
-            self.outputs[0].color_on = TYPE_COLORS[v];
-            self.outputs[0].color_off = TYPE_COLORS[v];
+            self.outputs[0].color_on = NODE_THEME.types[v];
+            self.outputs[0].color_off = NODE_THEME.types[v];
             self.setDirtyCanvas(true);
         }, { values: types });
         this.addWidget("text", "值", "", (v) => { self.properties.value = v; });
@@ -300,16 +442,16 @@ async function registerNodeTypes() {
     };
     LiteGraph.registerNodeType("constant/Value", ConstantNode);
 
-    // Preview viewer node
+    // Preview viewer node — inline preview + click to popup
     function PreviewNode() {
         this.addInput("image", "image");
         this.addInput("pdf", "pdf");
-        this.inputs[0].color_on = TYPE_COLORS["image"];
-        this.inputs[0].color_off = TYPE_COLORS["image"];
-        this.inputs[1].color_on = TYPE_COLORS["pdf"];
-        this.inputs[1].color_off = TYPE_COLORS["pdf"];
+        this.inputs[0].color_on = NODE_THEME.types["image"];
+        this.inputs[0].color_off = NODE_THEME.types["image"];
+        this.inputs[1].color_on = NODE_THEME.types["pdf"];
+        this.inputs[1].color_off = NODE_THEME.types["pdf"];
         this.properties = { current: 0, files: [] };
-        this.size = [320, 260];
+        this.size = [520, 420];
         this.title = "预览";
         this._img = null;
     }
@@ -317,8 +459,8 @@ async function registerNodeTypes() {
     PreviewNode.prototype.onDrawForeground = function(ctx) {
         const files = this.properties.files;
         if (!files.length) {
-            ctx.font = "12px sans-serif";
-            ctx.fillStyle = "#888";
+            ctx.font = "13px sans-serif";
+            ctx.fillStyle = "#999";
             ctx.textAlign = "center";
             ctx.fillText("连接输出节点后运行查看结果", this.size[0]/2, this.size[1]/2);
             ctx.textAlign = "left";
@@ -327,31 +469,51 @@ async function registerNodeTypes() {
         const idx = this.properties.current;
         const file = files[idx];
         // Navigation bar
-        ctx.fillStyle = "#f0f0f3";
-        ctx.fillRect(0, 0, this.size[0], 24);
-        ctx.font = "11px sans-serif";
-        ctx.fillStyle = "#1c1b1f";
-        ctx.fillText((idx+1) + "/" + files.length + "  " + file, 30, 16);
+        const C = NODE_THEME.litegraph;
+        ctx.fillStyle = C.widgetBg;
+        ctx.fillRect(0, 0, this.size[0], 26);
+        ctx.font = "12px sans-serif";
+        ctx.fillStyle = C.titleColor;
+        ctx.fillText((idx+1) + "/" + files.length + "  " + file, 34, 18);
         // Arrows
-        ctx.fillStyle = "#6750a4";
-        ctx.font = "16px sans-serif";
-        ctx.fillText("◀", 4, 18);
-        ctx.fillText("▶", this.size[0] - 18, 18);
+        ctx.fillStyle = C.boxColor;
+        ctx.font = "18px sans-serif";
+        ctx.fillText("◀", 6, 20);
+        ctx.fillText("▶", this.size[0] - 22, 20);
+        // Hint
+        ctx.font = "10px sans-serif";
+        ctx.fillStyle = "#aaa";
+        ctx.fillText("双击放大", this.size[0] - 50, this.size[1] - 6);
         // Image content
         if (this._img && this._img._src === file) {
             const iw = this._img.width, ih = this._img.height;
-            const scale = Math.min((this.size[0]-8)/(iw||1), (this.size[1]-32)/(ih||1), 1);
-            const dw = iw*scale, dh = ih*scale;
-            ctx.drawImage(this._img, (this.size[0]-dw)/2, 26 + ((this.size[1]-28-dh)/2), dw, dh);
-        } else if (file && (file.endsWith('.png') || file.endsWith('.jpg') || file.endsWith('.jpeg') || file.endsWith('.svg'))) {
+            const availW = this.size[0] - 12, availH = this.size[1] - 40;
+            const scale = Math.min(availW/(iw||1), availH/(ih||1), 1);
+            const dw = iw * scale, dh = ih * scale;
+            ctx.drawImage(this._img, (this.size[0]-dw)/2, 28 + (availH-dh)/2, dw, dh);
+        } else if (file && /\.(png|jpg|jpeg|svg)$/i.test(file)) {
             this._loadImage(file);
-        } else if (file && file.endsWith('.pdf')) {
-            ctx.font = "11px sans-serif";
-            ctx.fillStyle = "#888";
-            ctx.textAlign = "center";
-            ctx.fillText("PDF: " + file, this.size[0]/2, this.size[1]/2);
-            ctx.fillText("双击打开", this.size[0]/2, this.size[1]/2 + 16);
-            ctx.textAlign = "left";
+        } else if (file && /\.pdf$/i.test(file)) {
+            if (this._img && this._img._src === file) {
+                const iw = this._img.width, ih = this._img.height;
+                const availW = this.size[0] - 12, availH = this.size[1] - 40;
+                const scale = Math.min(availW/(iw||1), availH/(ih||1), 1);
+                const dw = iw * scale, dh = ih * scale;
+                ctx.drawImage(this._img, (this.size[0]-dw)/2, 28 + (availH-dh)/2, dw, dh);
+            } else {
+                this._loadPDF(file);
+                // Fallback placeholder while loading
+                ctx.textAlign = "center";
+                ctx.fillStyle = NODE_THEME.types.pdf;
+                ctx.fillRect(this.size[0]/2 - 24, this.size[1]/2 - 34, 48, 56);
+                ctx.fillStyle = "#fff";
+                ctx.font = "bold 20px sans-serif";
+                ctx.fillText("PDF", this.size[0]/2, this.size[1]/2 - 2);
+                ctx.fillStyle = "#888";
+                ctx.font = "12px sans-serif";
+                ctx.fillText("加载中...", this.size[0]/2, this.size[1]/2 + 46);
+                ctx.textAlign = "left";
+            }
         }
     };
     PreviewNode.prototype._getConnectedSource = function() {
@@ -379,6 +541,26 @@ async function registerNodeTypes() {
         img.onload = () => { self._img = img; self.setDirtyCanvas(true); };
         img.src = `/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}/${encodeURIComponent(file)}`;
     };
+    PreviewNode.prototype._loadPDF = async function(file) {
+        const self = this;
+        const src = this._getConnectedSource();
+        if (!src) return;
+        const url = `/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}/${encodeURIComponent(file)}`;
+        try {
+            const pdf = await pdfjsLib.getDocument(url).promise;
+            const page = await pdf.getPage(1);
+            const scale = 1.5;
+            const viewport = page.getViewport({ scale });
+            const tmp = document.createElement('canvas');
+            tmp.width = viewport.width;
+            tmp.height = viewport.height;
+            await page.render({ canvasContext: tmp.getContext('2d'), viewport }).promise;
+            const img = new Image();
+            img._src = file;
+            img.onload = () => { self._img = img; self.setDirtyCanvas(true); };
+            img.src = tmp.toDataURL();
+        } catch (e) { console.error('PDF render failed:', e); }
+    };
     PreviewNode.prototype.onDblClick = function() {
         const files = this.properties.files;
         if (!files.length) return;
@@ -386,7 +568,20 @@ async function registerNodeTypes() {
         if (!file) return;
         const src = this._getConnectedSource();
         if (!src) return;
-        window.open(`/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}/${encodeURIComponent(file)}`, '_blank');
+        const url = `/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}/${encodeURIComponent(file)}`;
+        const img = document.getElementById('image-preview-img');
+        const pdf = document.getElementById('image-preview-pdf');
+        const dialog = document.getElementById('image-preview-dialog');
+        if (/\.(png|jpg|jpeg|svg)$/i.test(file)) {
+            img.style.display = ''; img.src = url;
+            pdf.style.display = 'none'; pdf.src = '';
+        } else if (/\.pdf$/i.test(file)) {
+            pdf.style.display = ''; pdf.src = url;
+            img.style.display = 'none'; img.src = '';
+        } else {
+            window.open(url, '_blank'); return;
+        }
+        window.showShoelaceDialog(dialog);
     };
     PreviewNode.prototype.onMouseDown = function(e, localPos) {
         if (localPos[1] < 24 && this.properties.files.length > 1) {
@@ -403,15 +598,31 @@ async function registerNodeTypes() {
             }
         }
     };
+    PreviewNode.prototype._getConnectedTypes = function() {
+        const types = [];
+        if (this.inputs[0].link != null) types.push('image');
+        if (this.inputs[1].link != null) types.push('pdf');
+        return types;
+    };
     PreviewNode.prototype.loadOutputFiles = async function() {
         const src = this._getConnectedSource();
         if (!src) return;
         const res = await fetch(`/projects/${PROJECT_ID}/output/${encodeURIComponent(src.key)}`);
         const data = await res.json();
-        const viewable = data.files.filter(f => /\.(png|jpg|jpeg|svg|pdf)$/i.test(f));
+        const cTypes = this._getConnectedTypes();
+        let filter;
+        if (cTypes.length === 1) {
+            filter = cTypes[0] === 'pdf'
+                ? /\.pdf$/i
+                : /\.(png|jpg|jpeg|svg)$/i;
+        } else {
+            filter = /\.(png|jpg|jpeg|svg|pdf)$/i;
+        }
+        const viewable = data.files.filter(f => filter.test(f));
         this.properties.files = viewable;
         this.properties.current = 0;
         this._img = null;
+        this.color = viewable.length ? NODE_THEME.status.completed : NODE_THEME.status.idle;
         this.setDirtyCanvas(true);
     };
     PreviewNode.prototype.onConnectionsChange = function() {
@@ -429,17 +640,17 @@ async function registerNodeTypes() {
                 const t = inp.type || "file";
                 this.addInput(inp.name + " :" + t, t);
                 const slot = this.inputs[this.inputs.length - 1];
-                slot.color_on = TYPE_COLORS[t];
-                slot.color_off = TYPE_COLORS[t];
+                slot.color_on = NODE_THEME.types[t];
+                slot.color_off = NODE_THEME.types[t];
             });
             script.outputs.forEach(out => {
                 const t = out.type || "file";
                 this.addOutput(out.name + " :" + t, t);
                 const slot = this.outputs[this.outputs.length - 1];
-                slot.color_on = TYPE_COLORS[t];
-                slot.color_off = TYPE_COLORS[t];
+                slot.color_on = NODE_THEME.types[t];
+                slot.color_off = NODE_THEME.types[t];
             });
-            this.properties = { script_path: script.path, defaults: {} };
+            this.properties = { script_path: script.path, defaults: {}, sif: script.default_sif || '' };
             script.inputs.forEach(i => { if (i.default) this.properties.defaults[i.name] = i.default; });
             this.title = script.title || script.filename;
             const titleWidth = Math.max(220, this.title.length * 14 + 20);
@@ -450,6 +661,27 @@ async function registerNodeTypes() {
             script.outputs.forEach((out, i) => this.setOutputData(i, out.name));
         };
         ScriptNode.prototype.onGetInputs = function() { return []; };
+        ScriptNode.prototype.onDrawForeground = function(ctx) {
+            if (this.properties.sif) {
+                const w = this.size[0];
+                ctx.font = "bold 10px sans-serif";
+                const label = "SIF";
+                const tw = ctx.measureText(label).width;
+                const bw = tw + 16;
+                ctx.fillStyle = "#6750a4";
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(w - bw - 6, 4, bw, 16, 4);
+                } else {
+                    ctx.rect(w - bw - 6, 4, bw, 16);
+                }
+                ctx.fill();
+                ctx.fillStyle = "#fff";
+                ctx.textAlign = "center";
+                ctx.fillText(label, w - bw / 2 - 6, 16);
+                ctx.textAlign = "left";
+            }
+        };
         LiteGraph.registerNodeType(typeName, ScriptNode);
 
         // Add to menu
@@ -505,7 +737,7 @@ async function openFilePicker(node) {
     const dialog = document.getElementById('file-picker-dialog');
     const content = document.getElementById('file-picker-content');
     content.innerHTML = '<div class="text-muted-text">加载中...</div>';
-    dialog.showModal();
+    window.showShoelaceDialog(dialog);
 
     const res = await fetch('/files?path=data');
     const html = await res.text();
@@ -532,6 +764,7 @@ function selectFile(el, filename) {
     if (node) {
         node.properties.file_path = 'data/' + filename;
         node.title = "数据源: " + filename;
+        node.refreshSize();
         // Auto-detect output type from extension
         const ext = filename.split('.').pop().toLowerCase();
         const extMap = {csv:'table',tsv:'table',xls:'table',xlsx:'table',png:'image',jpg:'image',jpeg:'image',svg:'image',pdf:'pdf',rds:'rdata',rdata:'rdata'};
@@ -539,13 +772,13 @@ function selectFile(el, filename) {
         node.properties.output_type = t;
         node.outputs[0].type = t;
         node.outputs[0].name = t;
-        node.outputs[0].color_on = TYPE_COLORS[t];
-        node.outputs[0].color_off = TYPE_COLORS[t];
+        node.outputs[0].color_on = NODE_THEME.types[t];
+        node.outputs[0].color_off = NODE_THEME.types[t];
         // Update combo widget
         if (node.widgets && node.widgets[0]) node.widgets[0].value = t;
         canvas.setDirty(true, true);
     }
-    document.getElementById('file-picker-dialog').close();
+    window.hideShoelaceDialog('file-picker-dialog');
 }
 
 // --- Save/Load ---
@@ -583,9 +816,9 @@ function showRunResult(status) {
     const toolbar = document.getElementById('toolbar');
     if (status === 'failed') {
         toolbar.classList.add('bg-error-container');
-        alert('运行失败，请检查日志');
+        window.showToast('运行失败，请检查日志', 'danger');
     } else if (status === 'completed') {
-        alert('运行完成');
+        window.showToast('运行完成', 'success');
     }
     fetchLogs();
 }
@@ -623,16 +856,16 @@ async function runAll() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
     });
-    if (!res.ok) { alert('启动运行失败'); return; }
+    if (!res.ok) { window.showToast('启动运行失败', 'danger'); return; }
     const data = await res.json();
-    if (data.error) { alert('运行失败：' + data.error); return; }
+    if (data.error) { window.showToast('运行失败：' + data.error, 'danger'); return; }
     if (data.ok) {
         setRunning(true);
         expandTerminal();
         document.getElementById('terminal-content').textContent = '运行中...';
         pollStatus();
     } else {
-        alert(data.error || '启动运行失败');
+        window.showToast(data.error || '启动运行失败', 'danger');
     }
 }
 
@@ -660,16 +893,76 @@ function pollStatus() {
 
 function updateNodeColors(statusData) {
     if (!statusData.steps) return;
+    const S = NODE_THEME.status;
     const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
     const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
     scriptNodes.sort((a, b) => a.id - b.id);
+
+    const propagateUpstream = (node, color) => {
+        (node.inputs || []).forEach(input => {
+            if (input.link == null) return;
+            const link = graph.links[input.link];
+            if (!link) return;
+            const origin = graph.getNodeById(link.origin_id);
+            if (!origin) return;
+            if (origin.type === 'datasource/File' || origin.type === 'constant/Value') {
+                origin.color = color;
+                origin._running = false;
+            }
+        });
+    };
+
+    const propagateRunningUpstream = (node) => {
+        (node.inputs || []).forEach(input => {
+            if (input.link == null) return;
+            const link = graph.links[input.link];
+            if (!link) return;
+            const origin = graph.getNodeById(link.origin_id);
+            if (!origin) return;
+            if (origin.type === 'datasource/File' || origin.type === 'constant/Value') {
+                origin._running = true;
+            }
+        });
+    };
+
+    const propagateDownstream = (node, color) => {
+        (node.outputs || []).forEach(output => {
+            if (output.links == null) return;
+            output.links.forEach(linkId => {
+                const link = graph.links[linkId];
+                if (!link) return;
+                const target = graph.getNodeById(link.target_id);
+                if (!target) return;
+                if (target.type === 'viewer/Preview') {
+                    target.color = color;
+                    target._running = false;
+                }
+            });
+        });
+    };
+
     statusData.steps.forEach(step => {
         const node = scriptNodes[step.step_order];
         if (!node) return;
-        if (step.status === 'completed') { node.color = '#1b5e20'; node._running = false; }
-        else if (step.status === 'running') { node.color = '#0d47a1'; node._running = true; }
-        else if (step.status === 'failed') { node.color = '#b71c1c'; node._running = false; }
-        else { node.color = null; node._running = false; }
+
+        switch (step.status) {
+        case 'completed':
+            node.color = S.completed; node._running = false;
+            propagateUpstream(node, S.completed);
+            propagateDownstream(node, S.completed);
+            break;
+        case 'running':
+            node._running = true;
+            propagateRunningUpstream(node);
+            break;  // colour driven by drawNode pulse
+        case 'failed':
+            node.color = S.failed; node._running = false;
+            propagateUpstream(node, S.completed);   // data source did its job
+            propagateDownstream(node, S.failed);    // preview reflects failure
+            break;
+        default:
+            node.color = S.idle; node._running = false; break;
+        }
     });
     canvas.setDirty(true, true);
 }
@@ -702,7 +995,7 @@ async function viewNodeOutput(node) {
     const key = idx + '_' + nodeTitle;
 
     const res = await fetch(`/projects/${PROJECT_ID}/output/${encodeURIComponent(key)}`);
-    if (!res.ok) { alert('获取输出失败'); return; }
+    if (!res.ok) { window.showToast('获取输出失败', 'danger'); return; }
     const data = await res.json();
     const dialog = document.getElementById('output-dialog');
     const content = document.getElementById('output-content');
@@ -714,7 +1007,7 @@ async function viewNodeOutput(node) {
             `<div class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-surface-container-low"><i data-lucide="file" class="w-4 h-4 text-secondary"></i><span>${f}</span></div>`
         ).join('');
     }
-    dialog.showModal();
+    window.showShoelaceDialog(dialog);
     lucide.createIcons();
 }
 
@@ -725,7 +1018,7 @@ async function runSingleNode(node) {
     scriptNodes.sort((a, b) => a.id - b.id);
     const idx = scriptNodes.indexOf(node);
     // TODO: implement single node run endpoint
-    node.color = '#0d47a1';
+    node._running = true;  // colour driven by drawNode pulse
     canvas.setDirty(true, true);
 }
 

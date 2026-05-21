@@ -15,14 +15,13 @@ async function openFile(path) {
     if (!res.ok) return;
     const data = await res.json();
     const modal = document.getElementById('file-modal');
-    const title = document.getElementById('modal-title');
     const img = document.getElementById('modal-image');
     const pdf = document.getElementById('modal-pdf');
     const editorWrap = document.getElementById('editor-wrap');
     const unsupported = document.getElementById('modal-unsupported');
     const saveBtn = document.getElementById('modal-save');
 
-    title.textContent = data.filename;
+    modal.label = data.filename;
     img.classList.add('hidden');
     pdf.classList.add('hidden');
     pdf.removeAttribute('src');
@@ -50,7 +49,7 @@ async function openFile(path) {
     } else {
         unsupported.classList.remove('hidden');
     }
-    modal.showModal();
+    window.showShoelaceDialog(modal);
 }
 
 if (!document.getElementById('modal-save')._bound) {
@@ -67,7 +66,7 @@ document.getElementById('modal-save').addEventListener('click', async function()
     setTimeout(() => { this.textContent = '保存'; }, 1500);
 });
 
-document.getElementById('file-modal').addEventListener('close', function() {
+document.getElementById('file-modal').addEventListener('sl-after-hide', function() {
     const el = document.querySelector('#editor-wrap monaco-editor');
     if (el?.editor) { el.editor.dispose(); }
     document.getElementById('editor-wrap').innerHTML = '';

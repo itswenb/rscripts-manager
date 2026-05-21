@@ -42,6 +42,20 @@ jobs:
       - name: Build package
         run: cargo run --quiet --manifest-path xtask/Cargo.toml -- ${{ matrix.command }}
 
+      - name: Verify single-file package
+        run: |
+          set -euo pipefail
+          archive="pkg/ripeline-${{ matrix.target }}.tar.gz"
+          expected_dir="ripeline-${{ matrix.target }}"
+          contents="$(tar -tzf "$archive" | sort)"
+          expected="$(printf '%s\n%s\n' "$expected_dir/" "$expected_dir/ripeline" | sort)"
+          if [ "$contents" != "$expected" ]; then
+            echo "Package must contain only the ripeline executable."
+            echo "Actual contents:"
+            tar -tzf "$archive"
+            exit 1
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

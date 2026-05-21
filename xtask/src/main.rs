@@ -73,6 +73,9 @@ fn package_target(package: &PackageTarget) -> Result<(), Box<dyn std::error::Err
     let archive_path = pkg_root.join(&archive_name);
 
     fs::create_dir_all(&pkg_root)?;
+    if work_root.exists() {
+        fs::remove_dir_all(&work_root)?;
+    }
     fs::create_dir_all(&work_root)?;
 
     run_release_build(&root, &target_dir, package)?;
@@ -92,12 +95,6 @@ fn package_target(package: &PackageTarget) -> Result<(), Box<dyn std::error::Err
             .join("ripeline"),
         package_dir.join("ripeline"),
     )?;
-    copy_optional_file(
-        &root.join(".env.example"),
-        &package_dir.join(".env.example"),
-    )?;
-    copy_optional_file(&root.join("README.md"), &package_dir.join("README.md"))?;
-    copy_dir(&root.join("static"), &package_dir.join("static"))?;
 
     if archive_path.exists() {
         fs::remove_file(&archive_path)?;
@@ -161,39 +158,6 @@ fn run_release_build(
 
     if !status.success() {
         return Err(format!("build failed with status {status}").into());
-    }
-
-    Ok(())
-}
-
-fn copy_optional_file(from: &Path, to: &Path) -> io::Result<()> {
-    if from.exists() {
-        fs::copy(from, to)?;
-    }
-    Ok(())
-}
-
-fn copy_dir(from: &Path, to: &Path) -> io::Result<()> {
-    if to.exists() {
-        fs::remove_dir_all(to)?;
-    }
-    fs::create_dir_all(to)?;
-
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let file_name = entry.file_name();
-        if file_name == ".DS_Store" {
-            continue;
-        }
-
-        let from_path = entry.path();
-        let to_path = to.join(file_name);
-
-        if from_path.is_dir() {
-            copy_dir(&from_path, &to_path)?;
-        } else {
-            fs::copy(from_path, to_path)?;
-        }
     }
 
     Ok(())

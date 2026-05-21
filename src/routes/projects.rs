@@ -486,6 +486,24 @@ async fn execute_flow(
         .await
         .ok();
 
+        // Per-node SIF override (optional)
+        let node_sif = node
+            .get("properties")
+            .and_then(|p| p.get("sif"))
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.trim().is_empty());
+
+        // Validate: Singularity mode requires at least one SIF source
+        if matches!(runtime.mode, crate::models::RuntimeMode::ClusterSingularity)
+            && node_sif.is_none()
+            && runtime.cluster.sif_path.trim().is_empty()
+        {
+            eprintln!("ERROR: 节点 '{}' 未配置 SIF 镜像（全局和节点级别均为空）", node_title);
+            sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                .bind(&run_id).execute(&pool).await.ok();
+            return;
+        }
+
         // Log the full command to stdout.log before execution
         let cmd_line = format!(
             "$ Rscript {} {} {}\n\n",
@@ -502,6 +520,7 @@ async fn execute_flow(
             &format!("ripeline_{}_{}", run_id, node_idx),
             &input_files,
             &runtime,
+            node_sif,
         )
         .await;
 

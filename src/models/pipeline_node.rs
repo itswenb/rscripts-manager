@@ -10,5 +10,6 @@ pub struct PipelineNode {
     pub params_schema: String,
     pub inputs_schema: String,
     pub outputs_schema: String,
+    pub default_sif: String,
     pub created_at: NaiveDateTime,
 }

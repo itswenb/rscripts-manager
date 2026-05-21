@@ -50,6 +50,7 @@ fn build_script_command(
     script_path: &str,
     extra_args: &[String],
     runtime: &RuntimeConfig,
+    node_sif: Option<&str>,
 ) -> String {
     let mut parts = Vec::new();
     let run_dir_q = shell_quote(&run_dir.display().to_string());
@@ -68,7 +69,10 @@ fn build_script_command(
             parts.push(format!("Rscript {} {}", script_q, run_dir_q));
         }
         ClusterRuntimeMode::Singularity => {
-            let image = runtime.cluster.sif_path.trim();
+            // Per-node SIF overrides global sif_path
+            let image = node_sif
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(runtime.cluster.sif_path.trim());
             let singularity_args = runtime.cluster.singularity_args.trim();
             let mut singularity = String::from("singularity exec");
             if !singularity_args.is_empty() {
@@ -147,9 +151,7 @@ pub async fn validate_runtime(runtime: &RuntimeConfig) -> Result<(), String> {
             if !det.singularity {
                 return Err("未检测到 singularity".into());
             }
-            if runtime.cluster.sif_path.trim().is_empty() {
-                return Err("未选择 .sif 镜像".into());
-            }
+            // Global sif_path is optional — individual nodes can override via per-node SIF
         }
         RuntimeMode::Auto => {}
     }
@@ -162,8 +164,9 @@ pub async fn submit_job(
     job_name: &str,
     extra_args: &[String],
     runtime: &RuntimeConfig,
+    node_sif: Option<&str>,
 ) -> Result<String, std::io::Error> {
-    let command = build_script_command(run_dir, script_path, extra_args, runtime);
+    let command = build_script_command(run_dir, script_path, extra_args, runtime, node_sif);
     let use_cluster = matches!(
         runtime.mode,
         RuntimeMode::ClusterSingularity | RuntimeMode::ClusterModule | RuntimeMode::ClusterBundled

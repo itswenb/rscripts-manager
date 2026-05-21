@@ -62,25 +62,20 @@
 </div>
 
 <!-- File Preview/Editor Modal -->
-<dialog id="file-modal" class="rounded-xl p-0 w-[90vw] h-[80vh] max-w-5xl backdrop:bg-black/40 border border-border shadow-xl">
-    <div class="bg-surface-container-lowest rounded-xl flex flex-col h-full">
-        <div class="px-4 py-3 border-b border-border flex items-center justify-between shrink-0">
-            <h2 id="modal-title" class="text-sm font-semibold text-on-surface truncate"></h2>
-            <div class="flex items-center gap-2">
-                <button id="modal-save" class="hidden px-3 py-1.5 bg-primary text-on-primary text-sm font-semibold rounded-lg hover:bg-primary-fixed-variant transition-colors">保存</button>
-                <button onclick="document.getElementById('file-modal').close()" class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">关闭</button>
-            </div>
-        </div>
-        <div id="modal-body" class="flex-1 overflow-hidden relative">
-            <img id="modal-image" class="hidden max-w-full max-h-full object-contain m-auto p-4">
-            <iframe id="modal-pdf" class="hidden w-full h-full border-0" title="PDF 预览"></iframe>
-            <div id="editor-wrap" class="w-full h-full"></div>
-            <div id="modal-unsupported" class="hidden flex items-center justify-center h-full text-muted-text">
-                <p>此文件类型不支持预览</p>
-            </div>
+<sl-dialog id="file-modal" label="" style="--width: min(90vw, 80rem);">
+    <div id="modal-body" class="h-[80vh] overflow-hidden relative">
+        <img id="modal-image" class="hidden max-w-full max-h-full object-contain m-auto p-4">
+        <iframe id="modal-pdf" class="hidden w-full h-full border-0" title="PDF 预览"></iframe>
+        <div id="editor-wrap" class="w-full h-full"></div>
+        <div id="modal-unsupported" class="hidden flex items-center justify-center h-full text-muted-text">
+            <p>此文件类型不支持预览</p>
         </div>
     </div>
-</dialog>
+    <div slot="footer" class="flex items-center justify-end gap-2">
+        <button id="modal-save" class="hidden px-3 py-1.5 bg-primary text-on-primary text-sm font-semibold rounded-lg hover:bg-primary-fixed-variant transition-colors">保存</button>
+        <button onclick="window.hideShoelaceDialog('file-modal')" class="px-3 py-1.5 text-sm border border-outline-variant rounded-lg text-secondary hover:bg-surface-container-low transition-colors">关闭</button>
+    </div>
+</sl-dialog>
 <script src="/static/files.js"></script>
 </div>
 {% endblock %}
