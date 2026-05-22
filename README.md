@@ -59,8 +59,18 @@ R 脚本通过 `sbatch` 提交到 HPC 计算节点执行，登录节点仅负责
 单二进制，scp 到 HPC 登录节点即可运行：
 
 ```bash
-./ripeline --port 9000 --data-dir ~/ripeline-data
+DATA_DIR=~/ripeline-data PORT=9000 ./ripeline run
 ```
+
+常用命令：
+
+```bash
+./ripeline run
+./ripeline reset --password 'new-admin-password'
+./ripeline help
+```
+
+未传子命令时会显示帮助。开发态裸 `cargo run` 通过 Cargo runner 自动等价于 `cargo run -- run`。
 
 通过 SSH 隧道从本地浏览器访问：
 
@@ -68,6 +78,24 @@ R 脚本通过 `sbatch` 提交到 HPC 计算节点执行，登录节点仅负责
 ssh -L 8080:localhost:9000 -J user@bastion user@login-node
 # 浏览器打开 http://localhost:8080
 ```
+
+## 打包
+
+本地打包入口统一走 `xtask`：
+
+```bash
+cargo pkg-linux-x86_64
+cargo pkg-macos-aarch64
+cargo pkg-windows-x86_64
+```
+
+产物输出到 `pkg/`：
+
+- Linux: `ripeline-x86_64-unknown-linux-gnu.tar.gz`
+- macOS Apple Silicon: `ripeline-aarch64-apple-darwin.tar.gz`
+- Windows x86_64: `ripeline-x86_64-pc-windows-msvc.zip`
+
+GitHub Actions 的 `Package` workflow 会按相同入口生成并上传这三类产物。
 
 ---
 

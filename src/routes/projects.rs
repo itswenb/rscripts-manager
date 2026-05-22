@@ -296,6 +296,9 @@ pub async fn run_flow(
     };
 
     let graph: serde_json::Value = serde_json::from_str(&flow.graph_data).unwrap_or_default();
+    if let Err(e) = preflight_graph(&graph, &state.data_dir, &project.name, None).await {
+        return Ok(Json(serde_json::json!({"error": e})));
+    }
 
     // 加载运行时配置（来自全局 settings）并做检测/校验
     let mut runtime = crate::routes::settings::load_runtime_config(&state.pool).await;
@@ -317,48 +320,128 @@ pub async fn run_flow(
     let data_dir = state.data_dir.clone();
     let pool = state.pool.clone();
     tokio::spawn(async move {
-        execute_flow(graph, project.name, data_dir, run_id, pool, runtime).await;
+        execute_flow(graph, project.name, data_dir, run_id, pool, runtime, None).await;
     });
 
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
-async fn execute_flow(
-    graph: serde_json::Value,
-    project_name: String,
-    data_dir: String,
-    run_id: String,
-    pool: sqlx::SqlitePool,
-    runtime: RuntimeConfig,
-) {
-    let nodes = graph
-        .get("nodes")
-        .and_then(|n| n.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let links = graph
-        .get("links")
-        .and_then(|l| l.as_array())
-        .cloned()
-        .unwrap_or_default();
+pub async fn run_node(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path((id, node_id)): Path<(String, i64)>,
+) -> Result<Json<serde_json::Value>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
+    let flow = sqlx::query_as::<_, ProjectFlow>(
+        "SELECT * FROM project_flows WHERE project_id = ? LIMIT 1",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap_or(None);
+    let Some(flow) = flow else {
+        return Ok(Json(serde_json::json!({"error": "no flow"})));
+    };
+    let project = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap_or(None);
+    let Some(project) = project else {
+        return Err(Redirect::to("/projects"));
+    };
 
-    let non_script_types = ["datasource/File", "constant/Value", "viewer/Preview"];
-    let mut script_nodes: Vec<&serde_json::Value> = nodes
-        .iter()
-        .filter(|n| {
-            let t = n.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            !non_script_types.contains(&t)
-        })
-        .collect();
-    script_nodes.sort_by_key(|n| n.get("id").and_then(|i| i.as_i64()).unwrap_or(0));
+    let graph: serde_json::Value = serde_json::from_str(&flow.graph_data).unwrap_or_default();
+    if let Err(e) = preflight_graph(&graph, &state.data_dir, &project.name, Some(node_id)).await {
+        return Ok(Json(serde_json::json!({"error": e})));
+    }
 
-    // Build topological order based on link dependencies
-    let script_ids: Vec<i64> = script_nodes
-        .iter()
-        .map(|n| n.get("id").and_then(|i| i.as_i64()).unwrap_or(0))
-        .collect();
+    let mut runtime = crate::routes::settings::load_runtime_config(&state.pool).await;
+    if let Err(e) = crate::slurm::resolve_auto(&mut runtime).await {
+        return Ok(Json(serde_json::json!({"error": e})));
+    }
+    if let Err(e) = crate::slurm::validate_runtime(&runtime).await {
+        return Ok(Json(serde_json::json!({"error": e})));
+    }
 
-    // For each script node, find which other script nodes it depends on (via links)
+    let run_id = uuid::Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO flow_runs (id, flow_id, status) VALUES (?, ?, 'running')")
+        .bind(&run_id)
+        .bind(&flow.id)
+        .execute(&state.pool)
+        .await
+        .ok();
+
+    let data_dir = state.data_dir.clone();
+    let pool = state.pool.clone();
+    tokio::spawn(async move {
+        execute_flow(
+            graph,
+            project.name,
+            data_dir,
+            run_id,
+            pool,
+            runtime,
+            Some(node_id),
+        )
+        .await;
+    });
+
+    Ok(Json(serde_json::json!({"ok": true})))
+}
+
+const NON_SCRIPT_TYPES: [&str; 3] = ["datasource/File", "constant/Value", "viewer/Preview"];
+
+fn is_script_node(node: &serde_json::Value) -> bool {
+    let node_type = node.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    !NON_SCRIPT_TYPES.contains(&node_type)
+}
+
+fn node_id(node: &serde_json::Value) -> i64 {
+    node.get("id").and_then(|i| i.as_i64()).unwrap_or(0)
+}
+
+fn node_title(node: &serde_json::Value) -> &str {
+    node.get("title")
+        .or(node.get("type"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("node")
+}
+
+fn port_name(port: &serde_json::Value) -> &str {
+    let raw_name = port.get("name").and_then(|n| n.as_str()).unwrap_or("input");
+    raw_name.split(" :").next().unwrap_or(raw_name)
+}
+
+fn sorted_script_nodes(nodes: &[serde_json::Value]) -> Vec<&serde_json::Value> {
+    let mut script_nodes: Vec<&serde_json::Value> =
+        nodes.iter().filter(|node| is_script_node(node)).collect();
+    script_nodes.sort_by_key(|node| node_id(node));
+    script_nodes
+}
+
+fn resolve_data_path(data_dir: &str, file_path: &str) -> String {
+    if std::path::Path::new(file_path).is_absolute() {
+        file_path.to_string()
+    } else {
+        format!("{}/{}", data_dir, file_path)
+    }
+}
+
+async fn file_exists(path: &str) -> bool {
+    tokio::fs::metadata(path)
+        .await
+        .map(|metadata| metadata.is_file())
+        .unwrap_or(false)
+}
+
+fn build_execution_order(
+    script_nodes: &[&serde_json::Value],
+    links: &[serde_json::Value],
+) -> Result<Vec<usize>, String> {
+    let script_ids: Vec<i64> = script_nodes.iter().map(|node| node_id(node)).collect();
     let mut deps: Vec<Vec<usize>> = vec![Vec::new(); script_nodes.len()];
     for (i, node) in script_nodes.iter().enumerate() {
         if let Some(inputs) = node.get("inputs").and_then(|x| x.as_array()) {
@@ -379,8 +462,7 @@ async fn execute_flow(
         }
     }
 
-    // Kahn's algorithm for topological sort
-    let mut in_degree: Vec<usize> = deps.iter().map(|d| d.len()).collect();
+    let mut in_degree: Vec<usize> = deps.iter().map(Vec::len).collect();
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); script_nodes.len()];
     for (i, d) in deps.iter().enumerate() {
         for &dep in d {
@@ -388,13 +470,13 @@ async fn execute_flow(
         }
     }
 
-    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
+    let mut queue = std::collections::VecDeque::new();
     for (i, &deg) in in_degree.iter().enumerate() {
         if deg == 0 {
             queue.push_back(i);
         }
     }
-    let mut exec_order: Vec<usize> = Vec::new();
+    let mut exec_order = Vec::new();
     while let Some(idx) = queue.pop_front() {
         exec_order.push(idx);
         for &next in &adj[idx] {
@@ -402,6 +484,210 @@ async fn execute_flow(
             if in_degree[next] == 0 {
                 queue.push_back(next);
             }
+        }
+    }
+
+    if exec_order.len() != script_nodes.len() {
+        return Err("流程图存在循环依赖，无法执行".to_string());
+    }
+
+    Ok(exec_order)
+}
+
+async fn preflight_graph(
+    graph: &serde_json::Value,
+    data_dir: &str,
+    project_name: &str,
+    target_node_id: Option<i64>,
+) -> Result<(), String> {
+    let nodes = graph
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let links = graph
+        .get("links")
+        .and_then(|l| l.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let script_nodes = sorted_script_nodes(&nodes);
+
+    if script_nodes.is_empty() {
+        return Err("流程中没有可执行的脚本节点".to_string());
+    }
+    let exec_order = build_execution_order(&script_nodes, &links)?;
+    let script_ids = script_nodes
+        .iter()
+        .map(|node| node_id(node))
+        .collect::<Vec<_>>();
+
+    let selected = if let Some(target) = target_node_id {
+        let Some(idx) = script_ids.iter().position(|&id| id == target) else {
+            return Err("选择的节点不是可执行脚本节点".to_string());
+        };
+        vec![idx]
+    } else {
+        exec_order
+    };
+
+    for node_idx in selected {
+        let node = script_nodes[node_idx];
+        let title = node_title(node);
+        let script_path = node
+            .get("properties")
+            .and_then(|p| p.get("script_path"))
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
+        if script_path.trim().is_empty() {
+            return Err(format!("节点 '{title}' 未配置 R 脚本路径"));
+        }
+        if !file_exists(script_path).await {
+            return Err(format!("节点 '{title}' 的 R 脚本不存在: {script_path}"));
+        }
+
+        if let Some(inputs) = node.get("inputs").and_then(|i| i.as_array()) {
+            for input in inputs {
+                let input_name = port_name(input);
+                let Some(lid) = input.get("link").and_then(|l| l.as_i64()) else {
+                    return Err(format!("节点 '{title}' 的输入 '{input_name}' 未连接"));
+                };
+                let Some(link) = links
+                    .iter()
+                    .find(|l| l.get(0).and_then(|v| v.as_i64()) == Some(lid))
+                else {
+                    return Err(format!("节点 '{title}' 的输入 '{input_name}' 连接无效"));
+                };
+                let origin_node_id = link.get(1).and_then(|v| v.as_i64()).unwrap_or(0);
+                let origin_slot = link.get(2).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let Some(origin) = nodes
+                    .iter()
+                    .find(|n| n.get("id").and_then(|i| i.as_i64()) == Some(origin_node_id))
+                else {
+                    return Err(format!(
+                        "节点 '{title}' 的输入 '{input_name}' 来源节点不存在"
+                    ));
+                };
+
+                match origin.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                    "constant/Value" => {
+                        let value = origin
+                            .get("properties")
+                            .and_then(|p| p.get("value"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if value.trim().is_empty() {
+                            return Err(format!(
+                                "节点 '{title}' 的输入 '{input_name}' 连接了空的固定值"
+                            ));
+                        }
+                    }
+                    "datasource/File" => {
+                        let file_path = origin
+                            .get("properties")
+                            .and_then(|p| p.get("file_path"))
+                            .and_then(|f| f.as_str())
+                            .unwrap_or("");
+                        if file_path.trim().is_empty() {
+                            return Err(format!(
+                                "节点 '{title}' 的输入 '{input_name}' 未选择数据文件"
+                            ));
+                        }
+                        let resolved = resolve_data_path(data_dir, file_path);
+                        if !file_exists(&resolved).await {
+                            return Err(format!(
+                                "节点 '{title}' 的输入 '{input_name}' 文件不存在: {resolved}"
+                            ));
+                        }
+                    }
+                    _ => {
+                        if target_node_id.is_some() {
+                            let Some(src) = resolve_output_path(
+                                origin,
+                                origin_slot,
+                                data_dir,
+                                project_name,
+                                &nodes,
+                                &script_nodes,
+                            ) else {
+                                return Err(format!(
+                                    "节点 '{title}' 的输入 '{input_name}' 无法解析上游输出"
+                                ));
+                            };
+                            if !file_exists(&src).await {
+                                return Err(format!(
+                                    "节点 '{title}' 的输入 '{input_name}' 依赖的上游输出不存在，请先运行上游节点: {src}"
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn append_node_log(work_dir: &str, message: impl AsRef<str>) {
+    use tokio::io::AsyncWriteExt;
+
+    if let Ok(mut file) = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(format!("{work_dir}/stdout.log"))
+        .await
+    {
+        let _ = file.write_all(message.as_ref().as_bytes()).await;
+        let _ = file.write_all(b"\n").await;
+    }
+}
+
+async fn execute_flow(
+    graph: serde_json::Value,
+    project_name: String,
+    data_dir: String,
+    run_id: String,
+    pool: sqlx::SqlitePool,
+    runtime: RuntimeConfig,
+    target_node_id: Option<i64>,
+) {
+    let nodes = graph
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let links = graph
+        .get("links")
+        .and_then(|l| l.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let script_nodes = sorted_script_nodes(&nodes);
+    let mut exec_order = match build_execution_order(&script_nodes, &links) {
+        Ok(order) => order,
+        Err(error) => {
+            tracing::error!("{error}");
+            sqlx::query(
+                "UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .bind(&run_id)
+            .execute(&pool)
+            .await
+            .ok();
+            return;
+        }
+    };
+    if let Some(target) = target_node_id {
+        exec_order.retain(|&idx| node_id(script_nodes[idx]) == target);
+        if exec_order.is_empty() {
+            sqlx::query(
+                "UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?",
+            )
+            .bind(&run_id)
+            .execute(&pool)
+            .await
+            .ok();
+            return;
         }
     }
 
@@ -424,44 +710,148 @@ async fn execute_flow(
         tokio::fs::remove_file(format!("{}/.pid", work_dir))
             .await
             .ok();
+        tokio::fs::write(format!("{}/stdout.log", work_dir), "")
+            .await
+            .ok();
+        tokio::fs::write(format!("{}/stderr.log", work_dir), "")
+            .await
+            .ok();
+
+        let step_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query("INSERT INTO step_runs (id, flow_run_id, step_order, status) VALUES (?, ?, ?, 'running')")
+            .bind(&step_id)
+            .bind(&run_id)
+            .bind(node_idx as i32)
+            .execute(&pool)
+            .await
+            .ok();
+        append_node_log(&work_dir, format!("==> 开始执行节点: {node_title}")).await;
 
         // Resolve inputs
         let mut input_files: Vec<String> = Vec::new();
+        let mut inputs_json = serde_json::Map::new();
         if let Some(inputs) = node.get("inputs").and_then(|i| i.as_array()) {
             for input in inputs {
-                if let Some(lid) = input.get("link").and_then(|l| l.as_i64()) {
-                    if let Some(link) = links
-                        .iter()
-                        .find(|l| l.get(0).and_then(|v| v.as_i64()) == Some(lid))
-                    {
-                        let origin_node_id = link.get(1).and_then(|v| v.as_i64()).unwrap_or(0);
-                        let origin_slot =
-                            link.get(2).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                        if let Some(origin) = nodes
-                            .iter()
-                            .find(|n| n.get("id").and_then(|i| i.as_i64()) == Some(origin_node_id))
-                        {
-                            let source_path = resolve_output_path(
-                                origin,
-                                origin_slot,
-                                &data_dir,
-                                &project_name,
-                                &nodes,
-                                &script_nodes,
-                            );
-                            if let Some(src) = source_path {
-                                let raw_name = input
-                                    .get("name")
-                                    .and_then(|n| n.as_str())
-                                    .unwrap_or("input");
-                                let input_name = raw_name.split(" :").next().unwrap_or(raw_name);
-                                let dest = format!("{}/{}", work_dir, input_name);
-                                let _ = tokio::fs::symlink(&src, &dest).await;
-                                input_files.push(src);
-                            }
-                        }
+                let input_name = port_name(input).to_string();
+                let Some(lid) = input.get("link").and_then(|l| l.as_i64()) else {
+                    append_node_log(
+                        &work_dir,
+                        format!("ERROR: 输入 '{input_name}' 未连接，已停止执行"),
+                    )
+                    .await;
+                    sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&step_id).execute(&pool).await.ok();
+                    sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&run_id).execute(&pool).await.ok();
+                    return;
+                };
+                let Some(link) = links
+                    .iter()
+                    .find(|l| l.get(0).and_then(|v| v.as_i64()) == Some(lid))
+                else {
+                    append_node_log(
+                        &work_dir,
+                        format!("ERROR: 输入 '{input_name}' 连接无效，已停止执行"),
+                    )
+                    .await;
+                    sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&step_id).execute(&pool).await.ok();
+                    sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&run_id).execute(&pool).await.ok();
+                    return;
+                };
+                let origin_node_id = link.get(1).and_then(|v| v.as_i64()).unwrap_or(0);
+                let origin_slot = link.get(2).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let Some(origin) = nodes
+                    .iter()
+                    .find(|n| n.get("id").and_then(|i| i.as_i64()) == Some(origin_node_id))
+                else {
+                    append_node_log(
+                        &work_dir,
+                        format!("ERROR: 输入 '{input_name}' 来源节点不存在，已停止执行"),
+                    )
+                    .await;
+                    sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&step_id).execute(&pool).await.ok();
+                    sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&run_id).execute(&pool).await.ok();
+                    return;
+                };
+
+                if origin.get("type").and_then(|t| t.as_str()) == Some("constant/Value") {
+                    let value = origin
+                        .get("properties")
+                        .and_then(|p| p.get("value"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if value.is_empty() {
+                        append_node_log(
+                            &work_dir,
+                            format!("ERROR: 输入 '{input_name}' 连接了空的固定值，已停止执行"),
+                        )
+                        .await;
+                        sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                            .bind(&step_id).execute(&pool).await.ok();
+                        sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                            .bind(&run_id).execute(&pool).await.ok();
+                        return;
                     }
+                    append_node_log(&work_dir, format!("输入 {input_name} = {value}")).await;
+                    inputs_json.insert(input_name, serde_json::Value::String(value));
+                    continue;
                 }
+
+                let source_path = resolve_output_path(
+                    origin,
+                    origin_slot,
+                    &data_dir,
+                    &project_name,
+                    &nodes,
+                    &script_nodes,
+                );
+                let Some(src) = source_path else {
+                    append_node_log(
+                        &work_dir,
+                        format!("ERROR: 输入 '{input_name}' 无法解析来源路径，已停止执行"),
+                    )
+                    .await;
+                    sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&step_id).execute(&pool).await.ok();
+                    sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&run_id).execute(&pool).await.ok();
+                    return;
+                };
+                if !file_exists(&src).await {
+                    append_node_log(
+                        &work_dir,
+                        format!("ERROR: 输入 '{input_name}' 文件不存在: {src}"),
+                    )
+                    .await;
+                    sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&step_id).execute(&pool).await.ok();
+                    sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&run_id).execute(&pool).await.ok();
+                    return;
+                }
+                let dest = format!("{}/{}", work_dir, input_name);
+                tokio::fs::remove_file(&dest).await.ok();
+                if let Err(err) = tokio::fs::symlink(&src, &dest).await {
+                    append_node_log(
+                        &work_dir,
+                        format!("ERROR: 无法链接输入 '{input_name}': {err}"),
+                    )
+                    .await;
+                    sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&step_id).execute(&pool).await.ok();
+                    sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                        .bind(&run_id).execute(&pool).await.ok();
+                    return;
+                }
+                append_node_log(&work_dir, format!("输入 {input_name} -> {src}")).await;
+                input_files.push(src.clone());
+                inputs_json.insert(input_name, serde_json::Value::String(src));
             }
         }
 
@@ -471,7 +861,12 @@ async fn execute_flow(
             .and_then(|s| s.as_str())
             .unwrap_or("");
         if script_path.is_empty() {
-            continue;
+            append_node_log(&work_dir, "ERROR: 未配置 R 脚本路径").await;
+            sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                .bind(&step_id).execute(&pool).await.ok();
+            sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                .bind(&run_id).execute(&pool).await.ok();
+            return;
         }
 
         let params = node
@@ -482,6 +877,13 @@ async fn execute_flow(
         tokio::fs::write(
             format!("{}/params.json", work_dir),
             serde_json::to_string_pretty(&params).unwrap_or_default(),
+        )
+        .await
+        .ok();
+        tokio::fs::write(
+            format!("{}/inputs.json", work_dir),
+            serde_json::to_string_pretty(&serde_json::Value::Object(inputs_json))
+                .unwrap_or_default(),
         )
         .await
         .ok();
@@ -498,7 +900,13 @@ async fn execute_flow(
             && node_sif.is_none()
             && runtime.cluster.sif_path.trim().is_empty()
         {
-            eprintln!("ERROR: 节点 '{}' 未配置 SIF 镜像（全局和节点级别均为空）", node_title);
+            append_node_log(
+                &work_dir,
+                format!("ERROR: 节点 '{node_title}' 未配置 SIF 镜像（全局和节点级别均为空）"),
+            )
+            .await;
+            sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                .bind(&step_id).execute(&pool).await.ok();
             sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                 .bind(&run_id).execute(&pool).await.ok();
             return;
@@ -511,8 +919,7 @@ async fn execute_flow(
             work_dir,
             input_files.join(" ")
         );
-        let stdout_path = format!("{}/stdout.log", work_dir);
-        tokio::fs::write(&stdout_path, &cmd_line).await.ok();
+        append_node_log(&work_dir, cmd_line).await;
 
         let result = crate::slurm::submit_job(
             std::path::Path::new(&work_dir),
@@ -526,19 +933,25 @@ async fn execute_flow(
 
         match result {
             Ok(job_id) => {
-                let step_id = uuid::Uuid::new_v4().to_string();
-                sqlx::query("INSERT INTO step_runs (id, flow_run_id, step_order, status, slurm_job_id) VALUES (?, ?, ?, 'running', ?)")
-                    .bind(&step_id).bind(&run_id).bind(node_idx as i32).bind(&job_id)
-                    .execute(&pool).await.ok();
+                append_node_log(&work_dir, format!("作业已提交: {job_id}")).await;
+                sqlx::query("UPDATE step_runs SET slurm_job_id = ? WHERE id = ?")
+                    .bind(&job_id)
+                    .bind(&step_id)
+                    .execute(&pool)
+                    .await
+                    .ok();
 
                 loop {
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     let status = crate::slurm::job_status(&job_id).await.unwrap_or_default();
                     if status.contains("COMPLETED") {
+                        append_node_log(&work_dir, "节点执行完成").await;
                         sqlx::query("UPDATE step_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                             .bind(&step_id).execute(&pool).await.ok();
                         break;
                     } else if status.contains("FAILED") || status.contains("CANCELLED") {
+                        append_node_log(&work_dir, format!("ERROR: 作业结束状态异常: {status}"))
+                            .await;
                         sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                             .bind(&step_id).execute(&pool).await.ok();
                         sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -547,7 +960,10 @@ async fn execute_flow(
                     }
                 }
             }
-            Err(_) => {
+            Err(err) => {
+                append_node_log(&work_dir, format!("ERROR: 作业提交失败: {err}")).await;
+                sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
+                    .bind(&step_id).execute(&pool).await.ok();
                 sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                     .bind(&run_id).execute(&pool).await.ok();
                 return;

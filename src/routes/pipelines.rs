@@ -1,14 +1,14 @@
-use axum::extract::{State, Path};
-use axum::response::{Html, Redirect, IntoResponse, Response};
-use axum::Form;
+use super::auth::is_authenticated;
+use crate::models::PipelineNode;
+use crate::AppState;
+use askama::Template;
+use axum::extract::{Path, State};
 use axum::http::HeaderMap;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::Form;
 use axum::Json;
 use axum_extra::extract::cookie::CookieJar;
-use askama::Template;
 use serde::{Deserialize, Serialize};
-use crate::AppState;
-use crate::models::PipelineNode;
-use super::auth::is_authenticated;
 
 pub struct NodeView {
     pub id: String,
@@ -41,31 +41,47 @@ fn is_nav_request(headers: &HeaderMap) -> bool {
 }
 
 fn to_node_views(rows: &[PipelineNode]) -> Vec<NodeView> {
-    rows.iter().map(|n| {
-        let inputs: Vec<serde_json::Value> = serde_json::from_str(&n.inputs_schema).unwrap_or_default();
-        let outputs: Vec<serde_json::Value> = serde_json::from_str(&n.outputs_schema).unwrap_or_default();
-        NodeView {
-            id: n.id.clone(),
-            name: n.name.clone(),
-            script_path: n.script_path.clone(),
-            default_sif: n.default_sif.clone(),
-            input_count: inputs.len(),
-            output_count: outputs.len(),
-        }
-    }).collect()
+    rows.iter()
+        .map(|n| {
+            let inputs: Vec<serde_json::Value> =
+                serde_json::from_str(&n.inputs_schema).unwrap_or_default();
+            let outputs: Vec<serde_json::Value> =
+                serde_json::from_str(&n.outputs_schema).unwrap_or_default();
+            NodeView {
+                id: n.id.clone(),
+                name: n.name.clone(),
+                script_path: n.script_path.clone(),
+                default_sif: n.default_sif.clone(),
+                input_count: inputs.len(),
+                output_count: outputs.len(),
+            }
+        })
+        .collect()
 }
 
-pub async fn list(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
-    let rows = sqlx::query_as::<_, PipelineNode>("SELECT * FROM pipeline_nodes ORDER BY created_at DESC")
-        .fetch_all(&state.pool).await.unwrap_or_default();
+pub async fn list(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
+    let rows =
+        sqlx::query_as::<_, PipelineNode>("SELECT * FROM pipeline_nodes ORDER BY created_at DESC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
     let nodes = to_node_views(&rows);
 
     if is_htmx(&headers) && !is_nav_request(&headers) {
         let tmpl = NodeListFragment { nodes };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
-        let tmpl = PipelinesTemplate { active_nav: "pipelines", nodes };
+        let tmpl = PipelinesTemplate {
+            active_nav: "pipelines",
+            nodes,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     }
 }
@@ -78,10 +94,19 @@ pub struct CreateNode {
     pub default_sif: String,
 }
 
-pub async fn create(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Form(form): Form<CreateNode>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn create(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Form(form): Form<CreateNode>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
 
-    let script_content = tokio::fs::read_to_string(&form.script_path).await.unwrap_or_default();
+    let script_content = tokio::fs::read_to_string(&form.script_path)
+        .await
+        .unwrap_or_default();
     let meta = crate::rparser::parse_script(&script_content);
 
     let id = uuid::Uuid::new_v4().to_string();
@@ -99,18 +124,35 @@ pub async fn create(State(state): State<AppState>, jar: CookieJar, headers: Head
         .execute(&state.pool).await.ok();
 
     if is_htmx(&headers) {
-        let rows = sqlx::query_as::<_, PipelineNode>("SELECT * FROM pipeline_nodes ORDER BY created_at DESC")
-            .fetch_all(&state.pool).await.unwrap_or_default();
-        let tmpl = NodeListFragment { nodes: to_node_views(&rows) };
+        let rows = sqlx::query_as::<_, PipelineNode>(
+            "SELECT * FROM pipeline_nodes ORDER BY created_at DESC",
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+        let tmpl = NodeListFragment {
+            nodes: to_node_views(&rows),
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
         Ok(Redirect::to("/pipelines").into_response())
     }
 }
 
-pub async fn delete(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Path(id): Path<String>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
-    sqlx::query("DELETE FROM pipeline_nodes WHERE id = ?").bind(&id).execute(&state.pool).await.ok();
+pub async fn delete(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
+    sqlx::query("DELETE FROM pipeline_nodes WHERE id = ?")
+        .bind(&id)
+        .execute(&state.pool)
+        .await
+        .ok();
 
     if is_htmx(&headers) {
         Ok(Html("").into_response())
@@ -119,10 +161,20 @@ pub async fn delete(State(state): State<AppState>, jar: CookieJar, headers: Head
     }
 }
 
-pub async fn update(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Path(id): Path<String>, Form(form): Form<CreateNode>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn update(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Form(form): Form<CreateNode>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
 
-    let script_content = tokio::fs::read_to_string(&form.script_path).await.unwrap_or_default();
+    let script_content = tokio::fs::read_to_string(&form.script_path)
+        .await
+        .unwrap_or_default();
     let meta = crate::rparser::parse_script(&script_content);
 
     let inputs_json = serde_json::to_string(&meta.inputs.iter().map(|i| {
@@ -139,9 +191,15 @@ pub async fn update(State(state): State<AppState>, jar: CookieJar, headers: Head
         .bind(&id).execute(&state.pool).await.ok();
 
     if is_htmx(&headers) {
-        let rows = sqlx::query_as::<_, PipelineNode>("SELECT * FROM pipeline_nodes ORDER BY created_at DESC")
-            .fetch_all(&state.pool).await.unwrap_or_default();
-        let tmpl = NodeListFragment { nodes: to_node_views(&rows) };
+        let rows = sqlx::query_as::<_, PipelineNode>(
+            "SELECT * FROM pipeline_nodes ORDER BY created_at DESC",
+        )
+        .fetch_all(&state.pool)
+        .await
+        .unwrap_or_default();
+        let tmpl = NodeListFragment {
+            nodes: to_node_views(&rows),
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
         Ok(Redirect::to("/pipelines").into_response())
@@ -159,8 +217,13 @@ pub struct ScriptInfo {
     pub outputs: Vec<serde_json::Value>,
 }
 
-pub async fn available_scripts(State(state): State<AppState>, jar: CookieJar) -> Result<Json<Vec<ScriptInfo>>, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn available_scripts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> Result<Json<Vec<ScriptInfo>>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
 
     let scripts_dir = format!("{}/scripts", state.data_dir);
     let mut scripts = Vec::new();
@@ -191,15 +254,25 @@ pub async fn available_scripts(State(state): State<AppState>, jar: CookieJar) ->
     Ok(Json(scripts))
 }
 
-pub async fn registered_scripts(State(state): State<AppState>, jar: CookieJar) -> Result<Json<Vec<ScriptInfo>>, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn registered_scripts(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> Result<Json<Vec<ScriptInfo>>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
 
-    let nodes = sqlx::query_as::<_, PipelineNode>("SELECT * FROM pipeline_nodes ORDER BY created_at DESC")
-        .fetch_all(&state.pool).await.unwrap_or_default();
+    let nodes =
+        sqlx::query_as::<_, PipelineNode>("SELECT * FROM pipeline_nodes ORDER BY created_at DESC")
+            .fetch_all(&state.pool)
+            .await
+            .unwrap_or_default();
 
     let mut scripts = Vec::new();
     for node in &nodes {
-        let content = tokio::fs::read_to_string(&node.script_path).await.unwrap_or_default();
+        let content = tokio::fs::read_to_string(&node.script_path)
+            .await
+            .unwrap_or_default();
         let meta = crate::rparser::parse_script(&content);
         scripts.push(ScriptInfo {
             path: node.script_path.clone(),

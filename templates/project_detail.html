@@ -125,6 +125,7 @@ let graph = new LGraph();
 let canvas;
 let availableScripts = [];
 let saveTimeout = null;
+let viewportInterval = null;
 // ── Unified node theme ── single source of truth for all node colours
 const NODE_THEME = {
     // Per-state header colours (applied via node.color)
@@ -159,8 +160,34 @@ const NODE_THEME = {
     },
 };
 
-// Localize LiteGraph context menu
-const _zhMap = {"Add Node":"添加节点","Add Group":"添加分组","Align":"对齐","Collapse All":"全部折叠","Expand All":"全部展开","Title":"标题","Clone":"克隆","Remove":"删除","Inputs":"输入","Outputs":"输出","Properties":"属性","Collapse":"折叠","Pin":"固定","Colors":"颜色","Shapes":"形状","Resize":"调整大小","Mode":"模式","Align Selected To":"对齐选中到"};
+// Localize LiteGraph context menu and hide the built-in node catalog from users.
+const _zhMap = {
+    "Add Node": "添加节点",
+    "Add Group": "添加分组",
+    "Edit Group": "编辑分组",
+    "Align": "对齐",
+    "Collapse All": "全部折叠",
+    "Expand All": "全部展开",
+    "Title": "标题",
+    "Clone": "克隆",
+    "Remove": "删除",
+    "Inputs": "输入",
+    "Outputs": "输出",
+    "Properties": "属性",
+    "Collapse": "折叠",
+    "Pin": "固定",
+    "Colors": "颜色",
+    "Color": "颜色",
+    "Shapes": "形状",
+    "Resize": "调整大小",
+    "Mode": "模式",
+    "Align Selected To": "对齐选中到",
+    "Font size": "字号",
+    "Top": "顶部",
+    "Bottom": "底部",
+    "Left": "左侧",
+    "Right": "右侧",
+};
 const _origContextMenu = LiteGraph.ContextMenu;
 function PatchedContextMenu(values, options) {
     if (values && Array.isArray(values)) {
@@ -170,8 +197,88 @@ function PatchedContextMenu(values, options) {
     }
     _origContextMenu.call(this, values, options);
 }
-PatchedContextMenu.prototype = _origContextMenu.prototype;
+PatchedContextMenu.prototype = Object.create(_origContextMenu.prototype);
+PatchedContextMenu.prototype.constructor = PatchedContextMenu;
 LiteGraph.ContextMenu = PatchedContextMenu;
+
+function createNodeAtPosition(typeName, position) {
+    const node = LiteGraph.createNode(typeName);
+    if (!node) {
+        window.showToast('节点类型不可用: ' + typeName, 'danger');
+        return;
+    }
+    const [x, y] = position || getGraphCenter();
+    node.pos = [x - 100, y - 40];
+    graph.add(node);
+    canvas.setDirty(true, true);
+}
+
+function getContextMenuPosition(canvasRef) {
+    if (canvasRef && Array.isArray(canvasRef.graph_mouse)) {
+        return [canvasRef.graph_mouse[0], canvasRef.graph_mouse[1]];
+    }
+    return getGraphCenter();
+}
+
+function buildAllowedNodeMenu(position) {
+    const scriptOptions = availableScripts.map(script => {
+        const typeName = "script/" + script.filename.replace(/\.[rR]$/, '');
+        return {
+            content: script.title || script.filename,
+            callback: () => createNodeAtPosition(typeName, position),
+        };
+    });
+
+    const options = [
+        { content: "文件数据源", callback: () => createNodeAtPosition("datasource/File", position) },
+        { content: "固定值", callback: () => createNodeAtPosition("constant/Value", position) },
+        { content: "预览节点", callback: () => createNodeAtPosition("viewer/Preview", position) },
+    ];
+
+    if (scriptOptions.length > 0) {
+        options.push(null, {
+            content: "脚本节点",
+            has_submenu: true,
+            submenu: { options: scriptOptions },
+        });
+    }
+
+    return options;
+}
+
+function createGroupAtPosition(position) {
+    const group = new LiteGraph.LGraphGroup();
+    group.pos = position || getGraphCenter();
+    graph.add(group);
+    canvas.setDirty(true, true);
+}
+
+LGraphCanvas.prototype.getCanvasMenuOptions = function() {
+    const position = getContextMenuPosition(this);
+    const options = [
+        {
+            content: "添加节点",
+            has_submenu: true,
+            submenu: { options: buildAllowedNodeMenu(position) },
+        },
+        { content: "添加分组", callback: () => createGroupAtPosition(position) },
+    ];
+
+    if (Object.keys(this.selected_nodes || {}).length > 1) {
+        options.push({
+            content: "对齐",
+            has_submenu: true,
+            callback: LGraphCanvas.onGroupAlign,
+        });
+    }
+
+    if (this.getExtraMenuOptions) {
+        const extra = this.getExtraMenuOptions(this, options);
+        return extra ? options.concat(extra) : options;
+    }
+
+    return options;
+};
 
 // Custom node menu
 const _origNodeMenu = LGraphCanvas.prototype.getNodeMenuOptions;
@@ -191,6 +298,7 @@ async function initGraph() {
     const canvasEl = document.getElementById('graph-canvas');
 
     canvas = new LGraphCanvas(canvasEl, graph);
+    canvas.allow_searchbox = false;
     canvas.background_image = null;
     const C = NODE_THEME.litegraph;
     canvas.clear_background_color = C.canvasBg;
@@ -251,26 +359,59 @@ async function initGraph() {
         } catch (_) {}
     };
 
-    // Fit content into view with 10px margin from top-left
+    // Fit graph-space node bounds into the current CSS viewport.
     const fitContent = () => {
         const nodes = graph._nodes;
         if (!nodes.length) return;
-        let minX = Infinity, minY = Infinity;
+
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const n of nodes) {
-            if (n.pos[0] < minX) minX = n.pos[0];
-            if (n.pos[1] < minY) minY = n.pos[1];
+            const width = Array.isArray(n.size) ? n.size[0] : 180;
+            const height = Array.isArray(n.size) ? n.size[1] : 80;
+            minX = Math.min(minX, n.pos[0]);
+            minY = Math.min(minY, n.pos[1]);
+            maxX = Math.max(maxX, n.pos[0] + width);
+            maxY = Math.max(maxY, n.pos[1] + height);
         }
-        const marginTop = 48 + 24;   // clear the 48px toolbar + padding
-        const marginLeft = 24;       // padding
-        canvas.ds.offset[0] = marginLeft / canvas.ds.scale - minX;
-        canvas.ds.offset[1] = marginTop / canvas.ds.scale - minY;
+        for (const group of graph._groups || []) {
+            const width = Array.isArray(group.size) ? group.size[0] : 140;
+            const height = Array.isArray(group.size) ? group.size[1] : 80;
+            minX = Math.min(minX, group.pos[0]);
+            minY = Math.min(minY, group.pos[1]);
+            maxX = Math.max(maxX, group.pos[0] + width);
+            maxY = Math.max(maxY, group.pos[1] + height);
+        }
+
+        const rect = canvasEl.getBoundingClientRect();
+        const viewW = rect.width || canvasEl.clientWidth || canvas.canvas.width;
+        const viewH = rect.height || canvasEl.clientHeight || canvas.canvas.height;
+        const padding = Math.max(8, Math.min(24, Math.min(viewW, viewH) * 0.06));
+        const contentW = Math.max(1, maxX - minX);
+        const contentH = Math.max(1, maxY - minY);
+        const fitScale = Math.min(
+            1,
+            Math.max(0.25, Math.min((viewW - padding * 2) / contentW, (viewH - padding * 2) / contentH))
+        );
+
+        canvas.ds.scale = fitScale;
+        canvas.ds.offset[0] = padding / fitScale - minX;
+        canvas.ds.offset[1] = padding / fitScale - minY;
+        canvas.setDirty(true, true);
     };
 
     restoreScale();
     window.addEventListener('beforeunload', saveViewport);
 
-    // Periodically save viewport
-    setInterval(saveViewport, 1000);
+    // Periodically save viewport while this project page is mounted.
+    if (viewportInterval) clearInterval(viewportInterval);
+    viewportInterval = setInterval(() => {
+        if (!document.getElementById('graph-canvas')) {
+            clearInterval(viewportInterval);
+            viewportInterval = null;
+            return;
+        }
+        saveViewport();
+    }, 1000);
 
     await registerNodeTypes();
     await loadGraph();
@@ -826,28 +967,36 @@ function showRunResult(status) {
 function toggleTerminal() {
     const content = document.getElementById('terminal-content');
     const icon = document.getElementById('terminal-toggle-icon');
+    if (!content || !icon) return;
     content.classList.toggle('hidden');
     icon.style.transform = content.classList.contains('hidden') ? '' : 'rotate(180deg)';
 }
 function expandTerminal() {
     const content = document.getElementById('terminal-content');
     const icon = document.getElementById('terminal-toggle-icon');
+    if (!content || !icon) return;
     content.classList.remove('hidden');
     icon.style.transform = 'rotate(180deg)';
 }
 function collapseTerminal() {
     const content = document.getElementById('terminal-content');
     const icon = document.getElementById('terminal-toggle-icon');
+    if (!content || !icon) return;
     content.classList.add('hidden');
     icon.style.transform = '';
 }
 async function fetchLogs() {
-    const res = await fetch(`/projects/${PROJECT_ID}/run-logs`);
-    if (!res.ok) return;
-    const data = await res.json();
     const el = document.getElementById('terminal-content');
+    if (!el) {
+        stopProjectPolling();
+        return false;
+    }
+    const res = await fetch(`/projects/${PROJECT_ID}/run-logs`);
+    if (!res.ok) return false;
+    const data = await res.json();
     el.textContent = data.logs || '暂无日志';
     el.scrollTop = el.scrollHeight;
+    return true;
 }
 
 async function runAll() {
@@ -858,7 +1007,12 @@ async function runAll() {
     });
     if (!res.ok) { window.showToast('启动运行失败', 'danger'); return; }
     const data = await res.json();
-    if (data.error) { window.showToast('运行失败：' + data.error, 'danger'); return; }
+    if (data.error) {
+        expandTerminal();
+        document.getElementById('terminal-content').textContent = 'ERROR: ' + data.error;
+        window.showToast('运行失败：' + data.error, 'danger');
+        return;
+    }
     if (data.ok) {
         setRunning(true);
         expandTerminal();
@@ -875,9 +1029,23 @@ async function cancelRun() {
 }
 
 let pollInterval = null;
+function stopProjectPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+    }
+    if (viewportInterval) {
+        clearInterval(viewportInterval);
+        viewportInterval = null;
+    }
+}
 function pollStatus() {
     if (pollInterval) return;
     pollInterval = setInterval(async () => {
+        if (!document.getElementById('terminal-content')) {
+            stopProjectPolling();
+            return;
+        }
         const res = await fetch(`/projects/${PROJECT_ID}/run-status`);
         const data = await res.json();
         updateNodeColors(data);
@@ -890,6 +1058,17 @@ function pollStatus() {
         }
     }, 2000);
 }
+
+document.body.addEventListener('htmx:beforeSwap', function(event) {
+    if (event.detail && event.detail.target && event.detail.target.id === 'main-content') {
+        stopProjectPolling();
+    }
+});
+document.body.addEventListener('htmx:beforeCleanupElement', function(event) {
+    if (event.target && event.target.id === 'page-content') {
+        stopProjectPolling();
+    }
+});
 
 function updateNodeColors(statusData) {
     if (!statusData.steps) return;
@@ -967,24 +1146,6 @@ function updateNodeColors(statusData) {
     canvas.setDirty(true, true);
 }
 
-// --- Context Menu ---
-LiteGraph.ContextMenu.prototype; // ensure loaded
-const origGetNodeMenuOptions = LGraphCanvas.prototype.getNodeMenuOptions;
-LGraphCanvas.prototype.getNodeMenuOptions = function(node) {
-    const options = origGetNodeMenuOptions.call(this, node);
-    if (node.type !== 'datasource/File') {
-        options.unshift({
-            content: "查看输出",
-            callback: () => viewNodeOutput(node)
-        });
-        options.unshift({
-            content: "执行此节点",
-            callback: () => runSingleNode(node)
-        });
-    }
-    return options;
-};
-
 async function viewNodeOutput(node) {
     const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
     const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
@@ -1017,9 +1178,28 @@ async function runSingleNode(node) {
     const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
     scriptNodes.sort((a, b) => a.id - b.id);
     const idx = scriptNodes.indexOf(node);
-    // TODO: implement single node run endpoint
-    node._running = true;  // colour driven by drawNode pulse
-    canvas.setDirty(true, true);
+    if (idx < 0) return;
+
+    const res = await fetch(`/projects/${PROJECT_ID}/run-node/${encodeURIComponent(node.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) { window.showToast('启动节点失败', 'danger'); return; }
+    const data = await res.json();
+    if (data.error) {
+        expandTerminal();
+        document.getElementById('terminal-content').textContent = 'ERROR: ' + data.error;
+        window.showToast('节点运行失败：' + data.error, 'danger');
+        return;
+    }
+    if (data.ok) {
+        setRunning(true);
+        expandTerminal();
+        document.getElementById('terminal-content').textContent = `正在执行节点: ${node.title || 'node'}...`;
+        node._running = true;  // colour driven by drawNode pulse
+        canvas.setDirty(true, true);
+        pollStatus();
+    }
 }
 
 // --- Start ---

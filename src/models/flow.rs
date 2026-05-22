@@ -48,7 +48,6 @@ pub struct StepRun {
     pub finished_at: Option<NaiveDateTime>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RuntimeConfig {
     #[serde(default)]

@@ -31,12 +31,7 @@ pub async fn login(
     .unwrap_or(None);
 
     if let Some((_username, hash)) = row {
-        use argon2::{Argon2, PasswordHash, PasswordVerifier};
-        let parsed = PasswordHash::new(&hash).unwrap();
-        if Argon2::default()
-            .verify_password(form.password.as_bytes(), &parsed)
-            .is_ok()
-        {
+        if crate::verify_password(&form.password, &hash) {
             let token = make_token(&state.secret);
             let cookie = Cookie::build((COOKIE_NAME, token))
                 .path("/")

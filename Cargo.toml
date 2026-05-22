@@ -22,3 +22,4 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 dotenv = { version = "0.15.7", package = "dotenvy" }
+zstd = { version = "0.13.3", default-features = false }

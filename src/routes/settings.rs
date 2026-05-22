@@ -1,8 +1,14 @@
-use axum::{extract::{Query, State}, Json};
+use crate::{
+    models::{ClusterRuntimeMode, RuntimeConfig, RuntimeMode},
+    runtime, AppState,
+};
+use axum::{
+    extract::{Query, State},
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
-use crate::{models::{RuntimeConfig, RuntimeMode, ClusterRuntimeMode}, runtime, AppState};
 
 #[derive(Serialize)]
 pub struct SettingsResponse {
@@ -17,9 +23,18 @@ pub async fn get_settings(State(state): State<AppState>) -> Json<SettingsRespons
     let map = load_settings_map(&state.pool).await;
     let detection = runtime::detect().await;
     Json(SettingsResponse {
-        mode: map.get("runtime.mode").cloned().unwrap_or_else(|| "host".into()),
-        singularity_image_dir: map.get("runtime.singularity_image_dir").cloned().unwrap_or_default(),
-        singularity_image: map.get("runtime.singularity_image").cloned().unwrap_or_default(),
+        mode: map
+            .get("runtime.mode")
+            .cloned()
+            .unwrap_or_else(|| "host".into()),
+        singularity_image_dir: map
+            .get("runtime.singularity_image_dir")
+            .cloned()
+            .unwrap_or_default(),
+        singularity_image: map
+            .get("runtime.singularity_image")
+            .cloned()
+            .unwrap_or_default(),
         module_name: map.get("runtime.module_name").cloned().unwrap_or_default(),
         detection,
     })
@@ -42,7 +57,10 @@ pub async fn save_settings(
 ) -> Json<serde_json::Value> {
     let entries = [
         ("runtime.mode", body.mode.as_str()),
-        ("runtime.singularity_image_dir", body.singularity_image_dir.as_str()),
+        (
+            "runtime.singularity_image_dir",
+            body.singularity_image_dir.as_str(),
+        ),
         ("runtime.singularity_image", body.singularity_image.as_str()),
         ("runtime.module_name", body.module_name.as_str()),
     ];
@@ -84,7 +102,11 @@ async fn load_settings_map(pool: &sqlx::SqlitePool) -> HashMap<String, String> {
 
 pub async fn load_runtime_config(pool: &sqlx::SqlitePool) -> RuntimeConfig {
     let map = load_settings_map(pool).await;
-    let mode = match map.get("runtime.mode").map(|s| s.as_str()).unwrap_or("host") {
+    let mode = match map
+        .get("runtime.mode")
+        .map(|s| s.as_str())
+        .unwrap_or("host")
+    {
         "cluster_singularity" => RuntimeMode::ClusterSingularity,
         "cluster_module" => RuntimeMode::ClusterModule,
         "cluster_bundled" => RuntimeMode::ClusterBundled,
@@ -100,7 +122,13 @@ pub async fn load_runtime_config(pool: &sqlx::SqlitePool) -> RuntimeConfig {
     cfg.mode = mode;
     cfg.cluster.mode = cluster_mode;
     cfg.cluster.module_name = map.get("runtime.module_name").cloned().unwrap_or_default();
-    cfg.cluster.sif_dir = map.get("runtime.singularity_image_dir").cloned().unwrap_or_default();
-    cfg.cluster.sif_path = map.get("runtime.singularity_image").cloned().unwrap_or_default();
+    cfg.cluster.sif_dir = map
+        .get("runtime.singularity_image_dir")
+        .cloned()
+        .unwrap_or_default();
+    cfg.cluster.sif_path = map
+        .get("runtime.singularity_image")
+        .cloned()
+        .unwrap_or_default();
     cfg
 }

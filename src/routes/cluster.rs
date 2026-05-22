@@ -1,6 +1,6 @@
-use axum::response::Html;
-use askama::Template;
 use crate::slurm;
+use askama::Template;
+use axum::response::Html;
 
 #[derive(Template)]
 #[template(path = "fragments/cluster_status.html")]

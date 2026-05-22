@@ -43,22 +43,19 @@
             <tr class="hover:bg-surface-container-low transition-colors group">
                 <td class="px-4 py-2 text-center">
                     {% if entry.is_dir %}
-                    {% if current_path.is_empty() && entry.name == "scripts" %}
-                    <i data-lucide="file-code-2" class="w-4 h-4 text-primary"></i>
-                    {% elif current_path.is_empty() && entry.name == "projects" %}
-                    <i data-lucide="folder-kanban" class="w-4 h-4 text-primary"></i>
-                    {% elif current_path.is_empty() && entry.name == "data" %}
-                    <i data-lucide="database" class="w-4 h-4 text-primary"></i>
+                    <i data-lucide="{{ entry.icon }}" class="w-4 h-4 {% if entry.is_special %}text-primary{% else %}text-secondary{% endif %}"></i>
                     {% else %}
-                    <i data-lucide="folder" class="w-4 h-4 text-secondary"></i>
-                    {% endif %}
-                    {% else %}
-                    <i data-lucide="file-text" class="w-4 h-4 text-muted-text"></i>
+                    <i data-lucide="{{ entry.icon }}" class="w-4 h-4 text-muted-text"></i>
                     {% endif %}
                 </td>
                 <td class="px-4 py-2 font-medium">
                     {% if entry.is_dir %}
-                    <a hx-get="/files?path={{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}" hx-target="#file-content" hx-swap="innerHTML" hx-push-url="true" class="hover:text-primary transition-colors cursor-pointer">{{ entry.name }}/</a>
+                    <a hx-get="/files?path={{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}" hx-target="#file-content" hx-swap="innerHTML" hx-push-url="true" class="inline-block hover:text-primary transition-colors cursor-pointer">
+                        <span class="block">{{ entry.name }}/</span>
+                        {% if entry.is_special %}
+                        <span class="block text-xs font-normal text-muted-text mt-0.5">{{ entry.description }}</span>
+                        {% endif %}
+                    </a>
                     {% else %}
                     <a onclick="openFile('{{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}')" class="hover:text-primary transition-colors cursor-pointer">{{ entry.name }}</a>
                     {% endif %}

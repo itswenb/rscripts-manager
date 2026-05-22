@@ -1,0 +1,1 @@
+ALTER TABLE admin ADD COLUMN avatar_base64 TEXT NOT NULL DEFAULT '';

@@ -18,7 +18,10 @@ pub async fn cluster_status() -> ClusterStatus {
     match output {
         Ok(o) if o.status.success() => {
             let text = String::from_utf8_lossy(&o.stdout);
-            let mut s = ClusterStatus { reachable: true, ..Default::default() };
+            let mut s = ClusterStatus {
+                reachable: true,
+                ..Default::default()
+            };
             for line in text.lines() {
                 match line.trim() {
                     "idle" | "idle*" => s.idle += 1,
@@ -55,7 +58,11 @@ fn build_script_command(
     let mut parts = Vec::new();
     let run_dir_q = shell_quote(&run_dir.display().to_string());
     let script_q = shell_quote(script_path);
-    let arg_qs = extra_args.iter().map(|a| shell_quote(a)).collect::<Vec<_>>().join(" ");
+    let arg_qs = extra_args
+        .iter()
+        .map(|a| shell_quote(a))
+        .collect::<Vec<_>>()
+        .join(" ");
 
     match runtime.cluster.mode {
         ClusterRuntimeMode::Bundled => {
@@ -189,7 +196,10 @@ pub async fn submit_job(
         let job_id = stdout.trim().rsplit(' ').next().unwrap_or("").to_string();
         Ok(job_id)
     } else {
-        let stdout_file = std::fs::OpenOptions::new().create(true).append(true).open(run_dir.join("stdout.log"))?;
+        let stdout_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(run_dir.join("stdout.log"))?;
         let stderr_file = std::fs::File::create(run_dir.join("stderr.log"))?;
         let child = tokio::process::Command::new("bash")
             .arg("-lc")
@@ -215,7 +225,9 @@ pub async fn job_status(job_id: &str) -> Result<String, std::io::Error> {
     if let Some(run_dir) = job_id.strip_prefix("local:") {
         let exit_file = std::path::Path::new(run_dir).join(".exit_code");
         if exit_file.exists() {
-            let code = tokio::fs::read_to_string(&exit_file).await.unwrap_or_default();
+            let code = tokio::fs::read_to_string(&exit_file)
+                .await
+                .unwrap_or_default();
             if code.trim() == "0" {
                 Ok("COMPLETED".to_string())
             } else {
@@ -240,7 +252,10 @@ pub async fn cancel_job(job_id: &str) -> Result<(), std::io::Error> {
         if let Ok(pid_str) = tokio::fs::read_to_string(&pid_file).await {
             let pid: u32 = pid_str.trim().parse().unwrap_or(0);
             if pid > 0 {
-                tokio::process::Command::new("kill").arg(pid.to_string()).output().await?;
+                tokio::process::Command::new("kill")
+                    .arg(pid.to_string())
+                    .output()
+                    .await?;
             }
         }
     } else {

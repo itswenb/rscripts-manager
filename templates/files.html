@@ -37,17 +37,14 @@
                 {% for dir in directories %}
                 <li>
                     <a hx-get="/files?path={{ dir.path }}" hx-target="#file-content" hx-swap="innerHTML" hx-push-url="true"
-                       class="w-full flex items-center gap-2 px-2 py-1 rounded text-sm transition-colors cursor-pointer {% if dir.path == current_path %}bg-surface-container-low text-on-surface font-medium{% else %}text-on-surface hover:bg-surface-container-low{% endif %}">
-                        {% if dir.name == "scripts" %}
-                        <i data-lucide="file-code-2" class="w-4 h-4 text-primary"></i>
-                        {% elif dir.name == "projects" %}
-                        <i data-lucide="folder-kanban" class="w-4 h-4 text-primary"></i>
-                        {% elif dir.name == "data" %}
-                        <i data-lucide="database" class="w-4 h-4 text-primary"></i>
-                        {% else %}
-                        <i data-lucide="{% if dir.path == current_path %}folder-open{% else %}folder{% endif %}" class="w-4 h-4 {% if dir.path == current_path %}text-primary{% else %}text-secondary{% endif %}"></i>
-                        {% endif %}
-                        <span>{{ dir.name }}/</span>
+                       class="w-full flex items-start gap-2 px-2 py-1.5 rounded text-sm transition-colors cursor-pointer {% if dir.path == current_path %}bg-surface-container-low text-on-surface font-medium{% else %}text-on-surface hover:bg-surface-container-low{% endif %}">
+                        <i data-lucide="{% if dir.is_special %}{{ dir.icon }}{% elif dir.path == current_path %}folder-open{% else %}folder{% endif %}" class="w-4 h-4 mt-0.5 shrink-0 {% if dir.is_special || dir.path == current_path %}text-primary{% else %}text-secondary{% endif %}"></i>
+                        <span class="min-w-0">
+                            <span class="block truncate">{{ dir.name }}/</span>
+                            {% if dir.is_special %}
+                            <span class="block text-[11px] leading-snug text-muted-text font-normal truncate">{{ dir.description }}</span>
+                            {% endif %}
+                        </span>
                     </a>
                 </li>
                 {% endfor %}

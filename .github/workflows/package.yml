@@ -21,10 +21,20 @@ jobs:
             target: x86_64-unknown-linux-gnu
             command: pkg-linux-x86_64
             cross: true
+            archive: tar.gz
+            binary: ripeline
           - os: macos-14
             target: aarch64-apple-darwin
             command: pkg-macos-aarch64
             cross: false
+            archive: tar.gz
+            binary: ripeline
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            command: pkg-windows-x86_64
+            cross: false
+            archive: zip
+            binary: ripeline.exe
 
     steps:
       - name: Checkout
@@ -42,13 +52,15 @@ jobs:
       - name: Build package
         run: cargo run --quiet --manifest-path xtask/Cargo.toml -- ${{ matrix.command }}
 
-      - name: Verify single-file package
+      - name: Verify tar package
+        if: matrix.archive == 'tar.gz'
+        shell: bash
         run: |
           set -euo pipefail
           archive="pkg/ripeline-${{ matrix.target }}.tar.gz"
           expected_dir="ripeline-${{ matrix.target }}"
           contents="$(tar -tzf "$archive" | sort)"
-          expected="$(printf '%s\n%s\n' "$expected_dir/" "$expected_dir/ripeline" | sort)"
+          expected="$(printf '%s\n%s\n' "$expected_dir/" "$expected_dir/${{ matrix.binary }}" | sort)"
           if [ "$contents" != "$expected" ]; then
             echo "Package must contain only the ripeline executable."
             echo "Actual contents:"
@@ -56,15 +68,36 @@ jobs:
             exit 1
           fi
 
+      - name: Verify zip package
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $archive = "pkg/ripeline-${{ matrix.target }}.zip"
+          $expectedDir = "ripeline-${{ matrix.target }}"
+          $expected = @(
+            "$expectedDir/",
+            "$expectedDir/${{ matrix.binary }}"
+          ) | Sort-Object
+          $entries = [System.IO.Compression.ZipFile]::OpenRead($archive).Entries |
+            ForEach-Object { $_.FullName } |
+            Sort-Object
+          if (Compare-Object -ReferenceObject $expected -DifferenceObject $entries -CaseSensitive) {
+            Write-Host "Package must contain only the ripeline executable."
+            Write-Host "Actual contents:"
+            $entries
+            exit 1
+          }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ripeline-${{ matrix.target }}
-          path: pkg/ripeline-${{ matrix.target }}.tar.gz
+          path: pkg/ripeline-${{ matrix.target }}.${{ matrix.archive }}
           if-no-files-found: error
 
       - name: Upload release asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: pkg/ripeline-${{ matrix.target }}.tar.gz
+          files: pkg/ripeline-${{ matrix.target }}.${{ matrix.archive }}

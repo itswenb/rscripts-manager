@@ -181,13 +181,27 @@ Cookie-based session，无需 JWT 或 OAuth。
 # 构建 Tailwind CSS
 npx tailwindcss -i static/input.css -o static/style.css --minify
 
-# 构建 Rust 二进制（静态链接，适配 Linux）
+# 构建 Linux 二进制
 cargo build --release --target x86_64-unknown-linux-gnu
 
 # 部署
 scp target/release/ripeline user@login-node:~/
-ssh user@login-node "./ripeline --port 9000"
+ssh user@login-node "PORT=9000 ./ripeline run"
 ```
+
+发布打包统一通过 `xtask` 执行：
+
+```bash
+cargo pkg-linux-x86_64
+cargo pkg-macos-aarch64
+cargo pkg-windows-x86_64
+```
+
+对应产物：
+
+- `pkg/ripeline-x86_64-unknown-linux-gnu.tar.gz`
+- `pkg/ripeline-aarch64-apple-darwin.tar.gz`
+- `pkg/ripeline-x86_64-pc-windows-msvc.zip`
 
 ---
 

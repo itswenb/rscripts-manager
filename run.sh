@@ -5,7 +5,7 @@
 # 3. ADMIN_PASSWORD=admin
 # 4. SECRET 自动随机生成
 # 5. 执行 cargo build --release
-# 6. 启动 ./target/release/ripeline
+# 6. 启动 ./target/release/ripeline run
 #
 # 也支持临时指定端口：
 #
@@ -24,12 +24,28 @@ random_secret() {
   fi
 }
 
+expand_tilde_path() {
+  local path="$1"
+  if [ "$path" = "~" ]; then
+    printf '%s\n' "$HOME"
+    return
+  fi
+
+  if [[ "$path" == "~/"* ]]; then
+    printf '%s/%s\n' "$HOME" "${path:2}"
+    return
+  fi
+
+  printf '%s\n' "$path"
+}
+
 if [ ! -f ".env" ]; then
   SECRET="$(random_secret)"
+  DATA_DIR_VALUE="$(expand_tilde_path "${DATA_DIR:-~/.ripeline}")"
   cat > .env <<EOF
-DATABASE_URL=sqlite:ripeline.db?mode=rwc
+DATABASE_URL=sqlite:${DATA_DIR_VALUE}/ripeline.db?mode=rwc
 PORT=${PORT:-9000}
-DATA_DIR=~/.ripeline
+DATA_DIR=${DATA_DIR_VALUE}
 SECRET=${SECRET}
 ADMIN_USER=admin
 ADMIN_PASSWORD=admin
@@ -39,4 +55,4 @@ fi
 
 cargo build --release
 
-exec ./target/release/ripeline
+exec ./target/release/ripeline run

@@ -1,19 +1,22 @@
-use axum::extract::{State, Query, Multipart};
-use axum::response::{Html, Redirect, IntoResponse, Response};
-use axum::Form;
-use axum::http::HeaderMap;
-use axum::Json;
-use axum::body::Body;
-use axum_extra::extract::cookie::CookieJar;
-use askama::Template;
-use serde::{Deserialize, Serialize};
-use crate::AppState;
 use super::auth::is_authenticated;
+use crate::AppState;
+use askama::Template;
+use axum::body::Body;
+use axum::extract::{Multipart, Query, State};
+use axum::http::HeaderMap;
+use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::Form;
+use axum::Json;
+use axum_extra::extract::cookie::CookieJar;
+use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 
 pub struct DirEntry {
     pub name: String,
     pub path: String,
+    pub icon: &'static str,
+    pub description: &'static str,
+    pub is_special: bool,
 }
 
 pub struct FileEntry {
@@ -22,6 +25,9 @@ pub struct FileEntry {
     pub file_type: String,
     pub size: String,
     pub modified: String,
+    pub icon: &'static str,
+    pub description: &'static str,
+    pub is_special: bool,
 }
 
 pub struct Breadcrumb {
@@ -60,7 +66,10 @@ pub struct FileQuery {
     pub path: Option<String>,
 }
 
-async fn build_file_data(base: &std::path::Path, rel: &str) -> (Vec<DirEntry>, Vec<Breadcrumb>, Vec<FileEntry>) {
+async fn build_file_data(
+    base: &std::path::Path,
+    rel: &str,
+) -> (Vec<DirEntry>, Vec<Breadcrumb>, Vec<FileEntry>) {
     let dir = base.join(rel);
 
     let mut directories = Vec::new();
@@ -68,18 +77,33 @@ async fn build_file_data(base: &std::path::Path, rel: &str) -> (Vec<DirEntry>, V
         while let Ok(Some(entry)) = rd.next_entry().await {
             if entry.metadata().await.map(|m| m.is_dir()).unwrap_or(false) {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                directories.push(DirEntry { path: name.clone(), name });
+                let meta = special_dir_meta(&name);
+                directories.push(DirEntry {
+                    path: name.clone(),
+                    name,
+                    icon: meta.icon,
+                    description: meta.description,
+                    is_special: meta.is_special,
+                });
             }
         }
     }
     directories.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let mut breadcrumbs = vec![Breadcrumb { name: "home".into(), path: "".into() }];
+    let mut breadcrumbs = vec![Breadcrumb {
+        name: "home".into(),
+        path: "".into(),
+    }];
     let mut acc = String::new();
     for part in rel.split('/').filter(|s| !s.is_empty()) {
-        if !acc.is_empty() { acc.push('/'); }
+        if !acc.is_empty() {
+            acc.push('/');
+        }
         acc.push_str(part);
-        breadcrumbs.push(Breadcrumb { name: part.to_string(), path: acc.clone() });
+        breadcrumbs.push(Breadcrumb {
+            name: part.to_string(),
+            path: acc.clone(),
+        });
     }
 
     let mut entries = Vec::new();
@@ -88,16 +112,39 @@ async fn build_file_data(base: &std::path::Path, rel: &str) -> (Vec<DirEntry>, V
             let name = entry.file_name().to_string_lossy().into_owned();
             let meta = entry.metadata().await.ok();
             let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
-            let size = meta.as_ref().map(|m| format_size(m.len())).unwrap_or_default();
-            let modified = meta.as_ref()
+            let size = meta
+                .as_ref()
+                .map(|m| format_size(m.len()))
+                .unwrap_or_default();
+            let modified = meta
+                .as_ref()
                 .and_then(|m| m.modified().ok())
                 .map(|t| {
                     let dt: chrono::DateTime<chrono::Local> = t.into();
                     dt.format("%m-%d %H:%M").to_string()
                 })
                 .unwrap_or_default();
-            let file_type = if is_dir { "目录".into() } else { ext_type(&name) };
-            entries.push(FileEntry { name, is_dir, file_type, size, modified });
+            let file_type = if is_dir {
+                "目录".into()
+            } else {
+                ext_type(&name)
+            };
+            let special = if rel.is_empty() && is_dir {
+                special_dir_meta(&name)
+            } else {
+                FileMeta::default()
+            };
+            let icon = if is_dir { special.icon } else { "file-text" };
+            entries.push(FileEntry {
+                name,
+                is_dir,
+                file_type,
+                size,
+                modified,
+                icon,
+                description: special.description,
+                is_special: special.is_special,
+            });
         }
     }
     entries.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then(a.name.cmp(&b.name)));
@@ -105,26 +152,95 @@ async fn build_file_data(base: &std::path::Path, rel: &str) -> (Vec<DirEntry>, V
     (directories, breadcrumbs, entries)
 }
 
-pub async fn list(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Query(q): Query<FileQuery>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+#[derive(Clone, Copy)]
+struct FileMeta {
+    icon: &'static str,
+    description: &'static str,
+    is_special: bool,
+}
+
+impl Default for FileMeta {
+    fn default() -> Self {
+        Self {
+            icon: "folder",
+            description: "",
+            is_special: false,
+        }
+    }
+}
+
+fn special_dir_meta(name: &str) -> FileMeta {
+    match name {
+        "scripts" => FileMeta {
+            icon: "file-code-2",
+            description: "存放 R 脚本节点源文件",
+            is_special: true,
+        },
+        "projects" => FileMeta {
+            icon: "folder-kanban",
+            description: "保存项目运行空间和输出结果",
+            is_special: true,
+        },
+        "data" => FileMeta {
+            icon: "database",
+            description: "存放流程输入数据文件",
+            is_special: true,
+        },
+        "singularity_images" => FileMeta {
+            icon: "box",
+            description: "存放 Slurm 运行使用的 SIF 镜像",
+            is_special: true,
+        },
+        _ => FileMeta::default(),
+    }
+}
+
+pub async fn list(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Query(q): Query<FileQuery>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let rel = q.path.clone().unwrap_or_default();
     let dir = base.join(&rel);
-    if !dir.starts_with(&base) { return Err(Redirect::to("/files")); }
+    if !dir.starts_with(&base) {
+        return Err(Redirect::to("/files"));
+    }
 
     let (directories, breadcrumbs, entries) = build_file_data(&base, &rel).await;
 
     if is_htmx(&headers) && !is_nav_request(&headers) {
-        let tmpl = FileTableFragment { current_path: rel, breadcrumbs, entries };
+        let tmpl = FileTableFragment {
+            current_path: rel,
+            breadcrumbs,
+            entries,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
-        let tmpl = FilesTemplate { active_nav: "files", current_path: rel, directories, breadcrumbs, entries };
+        let tmpl = FilesTemplate {
+            active_nav: "files",
+            current_path: rel,
+            directories,
+            breadcrumbs,
+            entries,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     }
 }
 
-pub async fn upload(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, mut multipart: Multipart) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn upload(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let mut upload_path = String::new();
     while let Ok(Some(field)) = multipart.next_field().await {
@@ -146,7 +262,11 @@ pub async fn upload(State(state): State<AppState>, jar: CookieJar, headers: Head
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &upload_path).await;
-        let tmpl = FileTableFragment { current_path: upload_path, breadcrumbs, entries };
+        let tmpl = FileTableFragment {
+            current_path: upload_path,
+            breadcrumbs,
+            entries,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
         Ok(Redirect::to(&format!("/files?path={upload_path}")).into_response())
@@ -158,8 +278,14 @@ pub struct ChunkResponse {
     pub ok: bool,
 }
 
-pub async fn upload_chunk(State(state): State<AppState>, jar: CookieJar, mut multipart: Multipart) -> Result<Json<ChunkResponse>, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn upload_chunk(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    mut multipart: Multipart,
+) -> Result<Json<ChunkResponse>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let mut upload_path = String::new();
     let mut filename = String::new();
@@ -178,8 +304,11 @@ pub async fn upload_chunk(State(state): State<AppState>, jar: CookieJar, mut mul
                         tokio::fs::create_dir_all(parent).await.ok();
                     }
                     let mut file = tokio::fs::OpenOptions::new()
-                        .create(true).write(true)
-                        .open(&target).await.map_err(|_| Redirect::to("/files"))?;
+                        .create(true)
+                        .write(true)
+                        .open(&target)
+                        .await
+                        .map_err(|_| Redirect::to("/files"))?;
                     use tokio::io::AsyncSeekExt;
                     file.seek(std::io::SeekFrom::Start(offset)).await.ok();
                     file.write_all(&data).await.ok();
@@ -197,8 +326,15 @@ pub struct MkdirForm {
     pub name: String,
 }
 
-pub async fn mkdir(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Form(form): Form<MkdirForm>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn mkdir(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Form(form): Form<MkdirForm>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let target = base.join(&form.path).join(&form.name);
     if target.starts_with(&base) {
@@ -207,7 +343,11 @@ pub async fn mkdir(State(state): State<AppState>, jar: CookieJar, headers: Heade
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &form.path).await;
-        let tmpl = FileTableFragment { current_path: form.path, breadcrumbs, entries };
+        let tmpl = FileTableFragment {
+            current_path: form.path,
+            breadcrumbs,
+            entries,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
         Ok(Redirect::to(&format!("/files?path={}", form.path)).into_response())
@@ -219,8 +359,15 @@ pub struct DeleteForm {
     pub path: String,
 }
 
-pub async fn delete(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Form(form): Form<DeleteForm>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn delete(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Form(form): Form<DeleteForm>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let target = base.join(&form.path);
     if target.starts_with(&base) && target != base {
@@ -230,11 +377,18 @@ pub async fn delete(State(state): State<AppState>, jar: CookieJar, headers: Head
             tokio::fs::remove_file(&target).await.ok();
         }
     }
-    let parent = std::path::Path::new(&form.path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let parent = std::path::Path::new(&form.path)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &parent).await;
-        let tmpl = FileTableFragment { current_path: parent, breadcrumbs, entries };
+        let tmpl = FileTableFragment {
+            current_path: parent,
+            breadcrumbs,
+            entries,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
         Ok(Redirect::to(&format!("/files?path={parent}")).into_response())
@@ -242,8 +396,12 @@ pub async fn delete(State(state): State<AppState>, jar: CookieJar, headers: Head
 }
 
 fn format_size(bytes: u64) -> String {
-    if bytes < 1024 { return format!("{bytes} B"); }
-    if bytes < 1024 * 1024 { return format!("{:.1} KB", bytes as f64 / 1024.0); }
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    if bytes < 1024 * 1024 {
+        return format!("{:.1} KB", bytes as f64 / 1024.0);
+    }
     format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
 }
 
@@ -265,11 +423,21 @@ pub struct RenameForm {
     pub new_name: String,
 }
 
-pub async fn rename(State(state): State<AppState>, jar: CookieJar, headers: HeaderMap, Form(form): Form<RenameForm>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn rename(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    Form(form): Form<RenameForm>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let source = base.join(&form.path);
-    let parent_rel = std::path::Path::new(&form.path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let parent_rel = std::path::Path::new(&form.path)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
     if let Some(parent) = source.parent() {
         let dest = parent.join(&form.new_name);
         if source.starts_with(&base) && dest.starts_with(&base) {
@@ -279,7 +447,11 @@ pub async fn rename(State(state): State<AppState>, jar: CookieJar, headers: Head
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &parent_rel).await;
-        let tmpl = FileTableFragment { current_path: parent_rel, breadcrumbs, entries };
+        let tmpl = FileTableFragment {
+            current_path: parent_rel,
+            breadcrumbs,
+            entries,
+        };
         Ok(Html(tmpl.render().unwrap_or_default()).into_response())
     } else {
         Ok(Redirect::to("/files").into_response())
@@ -295,32 +467,77 @@ pub struct FileContent {
     pub filename: String,
 }
 
-pub async fn read_file(State(state): State<AppState>, jar: CookieJar, Query(q): Query<FileQuery>) -> Result<Json<FileContent>, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn read_file(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(q): Query<FileQuery>,
+) -> Result<Json<FileContent>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let rel = q.path.clone().unwrap_or_default();
     let target = base.join(&rel);
-    if !target.starts_with(&base) || !target.is_file() { return Err(Redirect::to("/files")); }
+    if !target.starts_with(&base) || !target.is_file() {
+        return Err(Redirect::to("/files"));
+    }
 
-    let filename = target.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let filename = target
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
-    let image = matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "bmp");
+    let image = matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "bmp"
+    );
     let pdf = ext == "pdf";
-    let editable = matches!(ext.as_str(),
-        "r" | "rmd" | "txt" | "csv" | "tsv" | "json" | "yaml" | "yml" |
-        "toml" | "ini" | "cfg" | "conf" | "sh" | "bash" | "py" | "md" |
-        "xml" | "html" | "css" | "js" | "ts" | "sql" | "log" | "env" | "gitignore"
+    let editable = matches!(
+        ext.as_str(),
+        "r" | "rmd"
+            | "txt"
+            | "csv"
+            | "tsv"
+            | "json"
+            | "yaml"
+            | "yml"
+            | "toml"
+            | "ini"
+            | "cfg"
+            | "conf"
+            | "sh"
+            | "bash"
+            | "py"
+            | "md"
+            | "xml"
+            | "html"
+            | "css"
+            | "js"
+            | "ts"
+            | "sql"
+            | "log"
+            | "env"
+            | "gitignore"
     );
 
     let content = if image {
         format!("/files/download?path={}", rel)
     } else if editable {
-        tokio::fs::read_to_string(&target).await.unwrap_or_else(|_| "(无法读取)".into())
+        tokio::fs::read_to_string(&target)
+            .await
+            .unwrap_or_else(|_| "(无法读取)".into())
     } else {
         String::new()
     };
 
-    Ok(Json(FileContent { content, editable, image, pdf, filename }))
+    Ok(Json(FileContent {
+        content,
+        editable,
+        image,
+        pdf,
+        filename,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -329,26 +546,48 @@ pub struct SaveForm {
     pub content: String,
 }
 
-pub async fn save_file(State(state): State<AppState>, jar: CookieJar, Json(form): Json<SaveForm>) -> Result<Json<ChunkResponse>, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn save_file(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Json(form): Json<SaveForm>,
+) -> Result<Json<ChunkResponse>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let target = base.join(&form.path);
-    if !target.starts_with(&base) { return Err(Redirect::to("/files")); }
+    if !target.starts_with(&base) {
+        return Err(Redirect::to("/files"));
+    }
     if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent).await.ok();
     }
-    tokio::fs::write(&target, form.content.as_bytes()).await.ok();
+    tokio::fs::write(&target, form.content.as_bytes())
+        .await
+        .ok();
     Ok(Json(ChunkResponse { ok: true }))
 }
 
-pub async fn download(State(state): State<AppState>, jar: CookieJar, Query(q): Query<FileQuery>) -> Result<Response, Redirect> {
-    if !is_authenticated(&jar, &state.secret) { return Err(Redirect::to("/login")); }
+pub async fn download(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(q): Query<FileQuery>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
     let base = std::path::PathBuf::from(&state.data_dir);
     let rel = q.path.clone().unwrap_or_default();
     let target = base.join(&rel);
-    if !target.starts_with(&base) || !target.is_file() { return Err(Redirect::to("/files")); }
+    if !target.starts_with(&base) || !target.is_file() {
+        return Err(Redirect::to("/files"));
+    }
 
-    let filename = target.file_name().unwrap_or_default().to_string_lossy().into_owned();
+    let filename = target
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
     let mime = match ext.as_str() {
         "png" => "image/png",
@@ -363,7 +602,10 @@ pub async fn download(State(state): State<AppState>, jar: CookieJar, Query(q): Q
     let data = tokio::fs::read(&target).await.unwrap_or_default();
     Ok(Response::builder()
         .header("content-type", mime)
-        .header("content-disposition", format!("inline; filename=\"{filename}\""))
+        .header(
+            "content-disposition",
+            format!("inline; filename=\"{filename}\""),
+        )
         .body(Body::from(data))
         .unwrap())
 }

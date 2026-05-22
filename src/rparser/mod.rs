@@ -56,7 +56,9 @@ pub fn parse_script(content: &str) -> ScriptMeta {
 
 fn parse_port(val: &str) -> Option<PortDef> {
     let parts: Vec<&str> = val.trim().splitn(3, ' ').collect();
-    if parts.is_empty() { return None; }
+    if parts.is_empty() {
+        return None;
+    }
     let name = parts[0].to_string();
     let type_str = parts.get(1).unwrap_or(&"file");
     let (r#type, default) = if let Some((t, d)) = type_str.split_once(':') {
@@ -65,5 +67,10 @@ fn parse_port(val: &str) -> Option<PortDef> {
         (type_str.to_string(), None)
     };
     let description = parts.get(2).map(|s| s.to_string());
-    Some(PortDef { name, r#type, default, description })
+    Some(PortDef {
+        name,
+        r#type,
+        default,
+        description,
+    })
 }

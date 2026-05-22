@@ -1,15 +1,19 @@
-use axum::{Router, routing::{get, post, delete}, response::Html};
 use crate::AppState;
+use axum::{
+    response::Html,
+    routing::{delete, get, post},
+    Router,
+};
 
+pub mod audit;
 pub mod auth;
-pub mod projects;
-pub mod pipelines;
+pub mod cluster;
 pub mod files;
 pub mod flows;
-pub mod cluster;
-pub mod users;
-pub mod audit;
+pub mod pipelines;
+pub mod projects;
 pub mod settings;
+pub mod users;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
@@ -17,18 +21,37 @@ pub fn router(state: AppState) -> Router {
         .route("/login", get(auth::login_page).post(auth::login))
         .route("/logout", get(auth::logout))
         .route("/projects", get(projects::list).post(projects::create))
-        .route("/projects/{id}", get(projects::detail).delete(projects::delete))
-        .route("/projects/{id}/flow", get(projects::get_flow).post(projects::save_flow))
+        .route(
+            "/projects/{id}",
+            get(projects::detail).delete(projects::delete),
+        )
+        .route(
+            "/projects/{id}/flow",
+            get(projects::get_flow).post(projects::save_flow),
+        )
         .route("/projects/{id}/run", post(projects::run_flow))
+        .route(
+            "/projects/{id}/run-node/{node_id}",
+            post(projects::run_node),
+        )
         .route("/projects/{id}/cancel", post(projects::cancel_flow))
         .route("/projects/{id}/run-status", get(projects::run_status))
         .route("/projects/{id}/run-logs", get(projects::run_logs))
-        .route("/projects/{id}/output/{node_index}", get(projects::node_output))
-        .route("/projects/{id}/output/{node_index}/{filename}", get(projects::node_output_file))
+        .route(
+            "/projects/{id}/output/{node_index}",
+            get(projects::node_output),
+        )
+        .route(
+            "/projects/{id}/output/{node_index}/{filename}",
+            get(projects::node_output_file),
+        )
         .route("/pipelines", get(pipelines::list).post(pipelines::create))
         .route("/pipelines/scripts", get(pipelines::available_scripts))
         .route("/pipelines/registered", get(pipelines::registered_scripts))
-        .route("/pipelines/{id}", delete(pipelines::delete).put(pipelines::update))
+        .route(
+            "/pipelines/{id}",
+            delete(pipelines::delete).put(pipelines::update),
+        )
         .route("/files", get(files::list))
         .route("/files/upload", post(files::upload))
         .route("/files/upload-chunk", post(files::upload_chunk))
@@ -39,7 +62,10 @@ pub fn router(state: AppState) -> Router {
         .route("/files/save", post(files::save_file))
         .route("/files/download", get(files::download))
         .route("/cluster/status", get(cluster::status))
-        .route("/settings", get(settings::get_settings).post(settings::save_settings))
+        .route(
+            "/settings",
+            get(settings::get_settings).post(settings::save_settings),
+        )
         .route("/runtime/detect", get(settings::detect))
         .route("/runtime/sif-list", get(settings::list_sif))
         .route("/runtime/modules", get(settings::list_modules))
@@ -48,8 +74,10 @@ pub fn router(state: AppState) -> Router {
         .route("/flows/{flow_id}/resume", post(flows::resume))
         .route("/flows/{flow_id}/reset/{step}", post(flows::reset_to_step))
         .route("/flows/{flow_id}/status", get(flows::status))
-        .route("/users", get(users::list).post(users::create))
-        .route("/users/{id}", delete(users::delete))
+        .route("/users", get(users::list))
+        .route("/users/summary", get(users::summary))
+        .route("/users/profile", post(users::update_profile))
+        .route("/users/avatar", post(users::update_avatar))
         .route("/audit", get(audit::list))
         .with_state(state)
 }

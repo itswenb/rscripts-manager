@@ -9,11 +9,22 @@ const PACKAGES: &[PackageTarget] = &[
         command: "pkg-linux-x86_64",
         rust_target: "x86_64-unknown-linux-gnu",
         builder: Builder::Cross,
+        binary_name: "ripeline",
+        archive_format: ArchiveFormat::TarGz,
     },
     PackageTarget {
         command: "pkg-macos-aarch64",
         rust_target: "aarch64-apple-darwin",
         builder: Builder::Cargo,
+        binary_name: "ripeline",
+        archive_format: ArchiveFormat::TarGz,
+    },
+    PackageTarget {
+        command: "pkg-windows-x86_64",
+        rust_target: "x86_64-pc-windows-msvc",
+        builder: Builder::Cargo,
+        binary_name: "ripeline.exe",
+        archive_format: ArchiveFormat::Zip,
     },
 ];
 
@@ -21,12 +32,20 @@ struct PackageTarget {
     command: &'static str,
     rust_target: &'static str,
     builder: Builder,
+    binary_name: &'static str,
+    archive_format: ArchiveFormat,
 }
 
 #[derive(Clone, Copy)]
 enum Builder {
     Cargo,
     Cross,
+}
+
+#[derive(Clone, Copy)]
+enum ArchiveFormat {
+    TarGz,
+    Zip,
 }
 
 fn main() -> ExitCode {
@@ -69,7 +88,7 @@ fn package_target(package: &PackageTarget) -> Result<(), Box<dyn std::error::Err
     let stage_root = work_root.join("stage");
     let package_name = format!("ripeline-{}", package.rust_target);
     let package_dir = stage_root.join(&package_name);
-    let archive_name = format!("{package_name}.tar.gz");
+    let archive_name = format!("{package_name}.{}", package.archive_format.extension());
     let archive_path = pkg_root.join(&archive_name);
 
     fs::create_dir_all(&pkg_root)?;
@@ -92,25 +111,20 @@ fn package_target(package: &PackageTarget) -> Result<(), Box<dyn std::error::Err
         target_dir
             .join(package.rust_target)
             .join("release")
-            .join("ripeline"),
-        package_dir.join("ripeline"),
+            .join(package.binary_name),
+        package_dir.join(package.binary_name),
     )?;
 
     if archive_path.exists() {
         fs::remove_file(&archive_path)?;
     }
 
-    let status = Command::new("tar")
-        .current_dir(&stage_root)
-        .args([
-            "-czf",
-            archive_path.to_string_lossy().as_ref(),
-            &package_name,
-        ])
-        .status()?;
-    if !status.success() {
-        return Err(format!("tar failed with status {status}").into());
-    }
+    create_archive(
+        package.archive_format,
+        &stage_root,
+        &archive_path,
+        &package_name,
+    )?;
 
     fs::remove_dir_all(&stage_root)?;
     remove_old_pkg_artifacts(&pkg_root)?;
@@ -163,6 +177,58 @@ fn run_release_build(
     Ok(())
 }
 
+impl ArchiveFormat {
+    fn extension(self) -> &'static str {
+        match self {
+            ArchiveFormat::TarGz => "tar.gz",
+            ArchiveFormat::Zip => "zip",
+        }
+    }
+}
+
+fn create_archive(
+    format: ArchiveFormat,
+    stage_root: &Path,
+    archive_path: &Path,
+    package_name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let status = match format {
+        ArchiveFormat::TarGz => Command::new("tar")
+            .current_dir(stage_root)
+            .args([
+                "-czf",
+                archive_path.to_string_lossy().as_ref(),
+                package_name,
+            ])
+            .status()?,
+        ArchiveFormat::Zip => {
+            let archive_path = escape_powershell_literal(archive_path);
+            let package_name = escape_powershell_literal(&stage_root.join(package_name));
+            Command::new("powershell")
+                .current_dir(stage_root)
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    &format!(
+                        "Compress-Archive -LiteralPath '{package_name}' -DestinationPath '{archive_path}' -Force"
+                    ),
+                ])
+                .status()?
+        }
+    };
+
+    if !status.success() {
+        return Err(format!("archive creation failed with status {status}").into());
+    }
+
+    Ok(())
+}
+
+fn escape_powershell_literal(path: &Path) -> String {
+    path.to_string_lossy().replace('\'', "''")
+}
+
 fn remove_old_pkg_artifacts(pkg_root: &Path) -> io::Result<()> {
     for entry in fs::read_dir(pkg_root)? {
         let entry = entry?;
@@ -170,7 +236,10 @@ fn remove_old_pkg_artifacts(pkg_root: &Path) -> io::Result<()> {
 
         if path.is_dir() {
             fs::remove_dir_all(path)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("gz") {
+        } else if matches!(
+            path.extension().and_then(|ext| ext.to_str()),
+            Some("gz") | Some("zip")
+        ) {
             continue;
         } else {
             fs::remove_file(path)?;
