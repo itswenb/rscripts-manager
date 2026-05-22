@@ -392,6 +392,39 @@ pub async fn run_node(
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
+#[derive(Clone, Copy)]
+enum LogKind {
+    Section,
+    Info,
+    Command,
+    Success,
+    Error,
+}
+
+impl LogKind {
+    fn sgr(self) -> &'static str {
+        match self {
+            Self::Section => "1;36",
+            Self::Info => "0;94",
+            Self::Command => "1;35",
+            Self::Success => "1;32",
+            Self::Error => "1;31",
+        }
+    }
+}
+
+fn ansi_wrap(text: impl AsRef<str>, sgr: &str) -> String {
+    format!("\x1b[{sgr}m{}\x1b[0m", text.as_ref())
+}
+
+fn format_log_message(kind: LogKind, message: impl AsRef<str>) -> String {
+    ansi_wrap(message, kind.sgr())
+}
+
+fn contains_ansi(text: &str) -> bool {
+    text.contains("\x1b[")
+}
+
 const NON_SCRIPT_TYPES: [&str; 3] = ["datasource/File", "constant/Value", "viewer/Preview"];
 
 fn is_script_node(node: &serde_json::Value) -> bool {
@@ -642,6 +675,10 @@ async fn append_node_log(work_dir: &str, message: impl AsRef<str>) {
     }
 }
 
+async fn append_node_log_kind(work_dir: &str, kind: LogKind, message: impl AsRef<str>) {
+    append_node_log(work_dir, format_log_message(kind, message)).await;
+}
+
 async fn execute_flow(
     graph: serde_json::Value,
     project_name: String,
@@ -725,7 +762,12 @@ async fn execute_flow(
             .execute(&pool)
             .await
             .ok();
-        append_node_log(&work_dir, format!("==> 开始执行节点: {node_title}")).await;
+        append_node_log_kind(
+            &work_dir,
+            LogKind::Section,
+            format!("==> 开始执行节点: {node_title}"),
+        )
+        .await;
 
         // Resolve inputs
         let mut input_files: Vec<String> = Vec::new();
@@ -734,8 +776,9 @@ async fn execute_flow(
             for input in inputs {
                 let input_name = port_name(input).to_string();
                 let Some(lid) = input.get("link").and_then(|l| l.as_i64()) else {
-                    append_node_log(
+                    append_node_log_kind(
                         &work_dir,
+                        LogKind::Error,
                         format!("ERROR: 输入 '{input_name}' 未连接，已停止执行"),
                     )
                     .await;
@@ -749,8 +792,9 @@ async fn execute_flow(
                     .iter()
                     .find(|l| l.get(0).and_then(|v| v.as_i64()) == Some(lid))
                 else {
-                    append_node_log(
+                    append_node_log_kind(
                         &work_dir,
+                        LogKind::Error,
                         format!("ERROR: 输入 '{input_name}' 连接无效，已停止执行"),
                     )
                     .await;
@@ -766,8 +810,9 @@ async fn execute_flow(
                     .iter()
                     .find(|n| n.get("id").and_then(|i| i.as_i64()) == Some(origin_node_id))
                 else {
-                    append_node_log(
+                    append_node_log_kind(
                         &work_dir,
+                        LogKind::Error,
                         format!("ERROR: 输入 '{input_name}' 来源节点不存在，已停止执行"),
                     )
                     .await;
@@ -787,8 +832,9 @@ async fn execute_flow(
                         .trim()
                         .to_string();
                     if value.is_empty() {
-                        append_node_log(
+                        append_node_log_kind(
                             &work_dir,
+                            LogKind::Error,
                             format!("ERROR: 输入 '{input_name}' 连接了空的固定值，已停止执行"),
                         )
                         .await;
@@ -798,7 +844,12 @@ async fn execute_flow(
                             .bind(&run_id).execute(&pool).await.ok();
                         return;
                     }
-                    append_node_log(&work_dir, format!("输入 {input_name} = {value}")).await;
+                    append_node_log_kind(
+                        &work_dir,
+                        LogKind::Info,
+                        format!("输入 {input_name} = {value}"),
+                    )
+                    .await;
                     inputs_json.insert(input_name, serde_json::Value::String(value));
                     continue;
                 }
@@ -812,8 +863,9 @@ async fn execute_flow(
                     &script_nodes,
                 );
                 let Some(src) = source_path else {
-                    append_node_log(
+                    append_node_log_kind(
                         &work_dir,
+                        LogKind::Error,
                         format!("ERROR: 输入 '{input_name}' 无法解析来源路径，已停止执行"),
                     )
                     .await;
@@ -824,8 +876,9 @@ async fn execute_flow(
                     return;
                 };
                 if !file_exists(&src).await {
-                    append_node_log(
+                    append_node_log_kind(
                         &work_dir,
+                        LogKind::Error,
                         format!("ERROR: 输入 '{input_name}' 文件不存在: {src}"),
                     )
                     .await;
@@ -838,8 +891,9 @@ async fn execute_flow(
                 let dest = format!("{}/{}", work_dir, input_name);
                 tokio::fs::remove_file(&dest).await.ok();
                 if let Err(err) = tokio::fs::symlink(&src, &dest).await {
-                    append_node_log(
+                    append_node_log_kind(
                         &work_dir,
+                        LogKind::Error,
                         format!("ERROR: 无法链接输入 '{input_name}': {err}"),
                     )
                     .await;
@@ -849,7 +903,12 @@ async fn execute_flow(
                         .bind(&run_id).execute(&pool).await.ok();
                     return;
                 }
-                append_node_log(&work_dir, format!("输入 {input_name} -> {src}")).await;
+                append_node_log_kind(
+                    &work_dir,
+                    LogKind::Info,
+                    format!("输入 {input_name} -> {src}"),
+                )
+                .await;
                 input_files.push(src.clone());
                 inputs_json.insert(input_name, serde_json::Value::String(src));
             }
@@ -861,7 +920,7 @@ async fn execute_flow(
             .and_then(|s| s.as_str())
             .unwrap_or("");
         if script_path.is_empty() {
-            append_node_log(&work_dir, "ERROR: 未配置 R 脚本路径").await;
+            append_node_log_kind(&work_dir, LogKind::Error, "ERROR: 未配置 R 脚本路径").await;
             sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                 .bind(&step_id).execute(&pool).await.ok();
             sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -900,8 +959,9 @@ async fn execute_flow(
             && node_sif.is_none()
             && runtime.cluster.sif_path.trim().is_empty()
         {
-            append_node_log(
+            append_node_log_kind(
                 &work_dir,
+                LogKind::Error,
                 format!("ERROR: 节点 '{node_title}' 未配置 SIF 镜像（全局和节点级别均为空）"),
             )
             .await;
@@ -919,7 +979,7 @@ async fn execute_flow(
             work_dir,
             input_files.join(" ")
         );
-        append_node_log(&work_dir, cmd_line).await;
+        append_node_log_kind(&work_dir, LogKind::Command, cmd_line).await;
 
         let result = crate::slurm::submit_job(
             std::path::Path::new(&work_dir),
@@ -933,7 +993,8 @@ async fn execute_flow(
 
         match result {
             Ok(job_id) => {
-                append_node_log(&work_dir, format!("作业已提交: {job_id}")).await;
+                append_node_log_kind(&work_dir, LogKind::Success, format!("作业已提交: {job_id}"))
+                    .await;
                 sqlx::query("UPDATE step_runs SET slurm_job_id = ? WHERE id = ?")
                     .bind(&job_id)
                     .bind(&step_id)
@@ -945,13 +1006,17 @@ async fn execute_flow(
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     let status = crate::slurm::job_status(&job_id).await.unwrap_or_default();
                     if status.contains("COMPLETED") {
-                        append_node_log(&work_dir, "节点执行完成").await;
+                        append_node_log_kind(&work_dir, LogKind::Success, "节点执行完成").await;
                         sqlx::query("UPDATE step_runs SET status = 'completed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                             .bind(&step_id).execute(&pool).await.ok();
                         break;
                     } else if status.contains("FAILED") || status.contains("CANCELLED") {
-                        append_node_log(&work_dir, format!("ERROR: 作业结束状态异常: {status}"))
-                            .await;
+                        append_node_log_kind(
+                            &work_dir,
+                            LogKind::Error,
+                            format!("ERROR: 作业结束状态异常: {status}"),
+                        )
+                        .await;
                         sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                             .bind(&step_id).execute(&pool).await.ok();
                         sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -961,7 +1026,12 @@ async fn execute_flow(
                 }
             }
             Err(err) => {
-                append_node_log(&work_dir, format!("ERROR: 作业提交失败: {err}")).await;
+                append_node_log_kind(
+                    &work_dir,
+                    LogKind::Error,
+                    format!("ERROR: 作业提交失败: {err}"),
+                )
+                .await;
                 sqlx::query("UPDATE step_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
                     .bind(&step_id).execute(&pool).await.ok();
                 sqlx::query("UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -1143,12 +1213,25 @@ pub async fn run_logs(
         );
         if let Ok(content) = tokio::fs::read_to_string(&stdout_path).await {
             if !content.is_empty() {
-                logs.push_str(&format!("── {} [stdout] ──\n{}\n", title, content));
+                logs.push_str(&format!(
+                    "{}\n{}\n",
+                    format_log_message(LogKind::Section, format!("── {} [stdout] ──", title)),
+                    content
+                ));
             }
         }
         if let Ok(content) = tokio::fs::read_to_string(&stderr_path).await {
             if !content.is_empty() {
-                logs.push_str(&format!("── {} [stderr] ──\n{}\n", title, content));
+                let stderr_body = if contains_ansi(&content) {
+                    content
+                } else {
+                    format_log_message(LogKind::Error, content)
+                };
+                logs.push_str(&format!(
+                    "{}\n{}\n",
+                    format_log_message(LogKind::Error, format!("── {} [stderr] ──", title)),
+                    stderr_body
+                ));
             }
         }
     }
@@ -1227,5 +1310,23 @@ pub async fn delete(
         Ok(Html("").into_response())
     } else {
         Ok(Redirect::to("/projects").into_response())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{contains_ansi, format_log_message, LogKind};
+
+    #[test]
+    fn formats_logs_with_ansi_sequences() {
+        let formatted = format_log_message(LogKind::Error, "ERROR: failed");
+        assert!(formatted.starts_with("\x1b[1;31m"));
+        assert!(formatted.ends_with("\x1b[0m"));
+    }
+
+    #[test]
+    fn detects_ansi_escape_sequences() {
+        assert!(contains_ansi("\x1b[32mgreen\x1b[0m"));
+        assert!(!contains_ansi("plain text"));
     }
 }
