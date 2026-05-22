@@ -74,11 +74,7 @@ jobs:
         run: |
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $archive = "pkg/ripeline-${{ matrix.target }}.zip"
-          $expectedDir = "ripeline-${{ matrix.target }}"
-          $expected = @(
-            "$expectedDir/",
-            "$expectedDir/${{ matrix.binary }}"
-          ) | Sort-Object
+          $expected = @("${{ matrix.binary }}")
           $entries = [System.IO.Compression.ZipFile]::OpenRead($archive).Entries |
             ForEach-Object { $_.FullName } |
             Sort-Object

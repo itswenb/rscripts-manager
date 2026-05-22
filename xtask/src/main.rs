@@ -122,8 +122,10 @@ fn package_target(package: &PackageTarget) -> Result<(), Box<dyn std::error::Err
     create_archive(
         package.archive_format,
         &stage_root,
+        &package_dir,
         &archive_path,
         &package_name,
+        package.binary_name,
     )?;
 
     fs::remove_dir_all(&stage_root)?;
@@ -189,8 +191,10 @@ impl ArchiveFormat {
 fn create_archive(
     format: ArchiveFormat,
     stage_root: &Path,
+    package_dir: &Path,
     archive_path: &Path,
     package_name: &str,
+    binary_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let status = match format {
         ArchiveFormat::TarGz => Command::new("tar")
@@ -203,15 +207,15 @@ fn create_archive(
             .status()?,
         ArchiveFormat::Zip => {
             let archive_path = escape_powershell_literal(archive_path);
-            let package_name = escape_powershell_literal(&stage_root.join(package_name));
+            let binary_path = escape_powershell_literal(&package_dir.join(binary_name));
             Command::new("powershell")
-                .current_dir(stage_root)
+                .current_dir(package_dir)
                 .args([
                     "-NoProfile",
                     "-NonInteractive",
                     "-Command",
                     &format!(
-                        "Compress-Archive -LiteralPath '{package_name}' -DestinationPath '{archive_path}' -Force"
+                        "Compress-Archive -LiteralPath '{binary_path}' -DestinationPath '{archive_path}' -Force"
                     ),
                 ])
                 .status()?
