@@ -470,6 +470,16 @@ async fn file_exists(path: &str) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(unix)]
+async fn stage_input_file(src: &str, dest: &str) -> std::io::Result<()> {
+    tokio::fs::symlink(src, dest).await
+}
+
+#[cfg(windows)]
+async fn stage_input_file(src: &str, dest: &str) -> std::io::Result<()> {
+    tokio::fs::copy(src, dest).await.map(|_| ())
+}
+
 fn build_execution_order(
     script_nodes: &[&serde_json::Value],
     links: &[serde_json::Value],
@@ -890,7 +900,7 @@ async fn execute_flow(
                 }
                 let dest = format!("{}/{}", work_dir, input_name);
                 tokio::fs::remove_file(&dest).await.ok();
-                if let Err(err) = tokio::fs::symlink(&src, &dest).await {
+                if let Err(err) = stage_input_file(&src, &dest).await {
                     append_node_log_kind(
                         &work_dir,
                         LogKind::Error,
