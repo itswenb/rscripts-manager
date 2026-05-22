@@ -12,9 +12,7 @@ const REQUIRED_DIRS: [&str; 4] = ["scripts", "projects", "data", "singularity_im
 const DB_FILE: &str = "ripeline.db";
 const COMPRESSION_LEVEL: i32 = 19;
 
-const MERGE_TABLES: [&str; 10] = [
-    "admin",
-    "users",
+const MERGE_TABLES: [&str; 8] = [
     "settings",
     "projects",
     "pipeline_nodes",
@@ -557,4 +555,122 @@ fn quote_ident(value: &str) -> String {
 
 fn quote_string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_database;
+    use crate::{hash_password, verify_password};
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "ripeline-{label}-{}-{nanos}.db",
+            std::process::id()
+        ))
+    }
+
+    async fn seeded_pool(path: &Path) -> sqlx::SqlitePool {
+        let url = format!("sqlite:{}?mode=rwc", path.display());
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .expect("connect sqlite db");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn merge_database_skips_user_tables() {
+        let main_path = temp_db_path("main-merge");
+        let backup_path = temp_db_path("backup-merge");
+
+        let main_pool = seeded_pool(&main_path).await;
+        let backup_pool = seeded_pool(&backup_path).await;
+
+        let current_hash = hash_password("current-secret");
+        let backup_hash = hash_password("backup-secret");
+        let current_user_hash = hash_password("current-user-secret");
+        let backup_user_hash = hash_password("backup-user-secret");
+
+        sqlx::query("INSERT INTO admin (id, username, password_hash) VALUES (1, ?, ?)")
+            .bind("admin")
+            .bind(&current_hash)
+            .execute(&main_pool)
+            .await
+            .expect("seed current admin");
+        sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("u1")
+            .bind("analyst")
+            .bind(&current_user_hash)
+            .bind("user")
+            .execute(&main_pool)
+            .await
+            .expect("seed current user");
+
+        sqlx::query("INSERT INTO admin (id, username, password_hash) VALUES (1, ?, ?)")
+            .bind("admin")
+            .bind(&backup_hash)
+            .execute(&backup_pool)
+            .await
+            .expect("seed backup admin");
+        sqlx::query("INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)")
+            .bind("u1")
+            .bind("analyst")
+            .bind(&backup_user_hash)
+            .bind("user")
+            .execute(&backup_pool)
+            .await
+            .expect("seed backup user");
+        sqlx::query("INSERT INTO projects (id, name, description) VALUES (?, ?, ?)")
+            .bind("p1")
+            .bind("Merged Project")
+            .bind("")
+            .execute(&backup_pool)
+            .await
+            .expect("seed backup project");
+
+        let merged_rows = merge_database(&main_pool, &backup_path)
+            .await
+            .expect("merge database");
+        assert_eq!(merged_rows, 1);
+
+        let stored_admin_hash =
+            sqlx::query_scalar::<_, String>("SELECT password_hash FROM admin WHERE id = 1")
+                .fetch_one(&main_pool)
+                .await
+                .expect("load merged admin");
+        assert!(verify_password("current-secret", &stored_admin_hash));
+        assert!(!verify_password("backup-secret", &stored_admin_hash));
+
+        let stored_user_hash =
+            sqlx::query_scalar::<_, String>("SELECT password_hash FROM users WHERE id = 'u1'")
+                .fetch_one(&main_pool)
+                .await
+                .expect("load merged user");
+        assert!(verify_password("current-user-secret", &stored_user_hash));
+        assert!(!verify_password("backup-user-secret", &stored_user_hash));
+
+        let project_name =
+            sqlx::query_scalar::<_, String>("SELECT name FROM projects WHERE id = 'p1'")
+                .fetch_one(&main_pool)
+                .await
+                .expect("load merged project");
+        assert_eq!(project_name, "Merged Project");
+
+        main_pool.close().await;
+        backup_pool.close().await;
+        let _ = std::fs::remove_file(&main_path);
+        let _ = std::fs::remove_file(&backup_path);
+    }
 }

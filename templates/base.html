@@ -146,7 +146,255 @@
             } catch (_) {}
         };
 
+        function setFieldFeedback(input, feedback, message, variant) {
+            if (!input || !feedback) return;
+            input.classList.remove('is-invalid', 'is-valid');
+            feedback.classList.remove('is-error', 'is-success');
+            feedback.textContent = message || '';
+            if (!message) return;
+            if (variant === 'error') {
+                input.classList.add('is-invalid');
+                feedback.classList.add('is-error');
+            } else if (variant === 'success') {
+                input.classList.add('is-valid');
+                feedback.classList.add('is-success');
+            }
+        }
+
+        function setPanelStatus(element, message, variant) {
+            if (!element) return;
+            element.classList.remove('is-visible', 'is-error', 'is-success');
+            element.textContent = message || '';
+            if (!message) return;
+            element.classList.add('is-visible', variant === 'success' ? 'is-success' : 'is-error');
+        }
+
+        function clearUsersProfileValidation() {
+            const fieldIds = [
+                'profile-username-input',
+                'profile-current-password',
+                'profile-new-password',
+                'profile-confirm-password'
+            ];
+            fieldIds.forEach(id => {
+                const input = document.getElementById(id);
+                const feedbackId = id === 'profile-username-input' ? 'profile-username-feedback' : `${id}-feedback`;
+                const feedback = document.getElementById(feedbackId);
+                if (input) input.classList.remove('is-invalid', 'is-valid');
+                if (feedback) {
+                    feedback.classList.remove('is-error', 'is-success');
+                    feedback.textContent = '';
+                }
+            });
+            setPanelStatus(document.getElementById('profile-status'), '', 'error');
+        }
+
+        function applyUsersProfileError(message) {
+            const normalized = message || '保存失败';
+            const profileStatus = document.getElementById('profile-status');
+            const usernameInput = document.getElementById('profile-username-input');
+            const usernameFeedback = document.getElementById('profile-username-feedback');
+            const currentPasswordInput = document.getElementById('profile-current-password');
+            const currentPasswordFeedback = document.getElementById('profile-current-password-feedback');
+            const newPasswordInput = document.getElementById('profile-new-password');
+            const newPasswordFeedback = document.getElementById('profile-new-password-feedback');
+            const confirmPasswordInput = document.getElementById('profile-confirm-password');
+            const confirmPasswordFeedback = document.getElementById('profile-confirm-password-feedback');
+
+            if (normalized.includes('用户名')) {
+                setFieldFeedback(usernameInput, usernameFeedback, normalized, 'error');
+            } else if (normalized.includes('当前密码')) {
+                setFieldFeedback(currentPasswordInput, currentPasswordFeedback, normalized, 'error');
+            } else if (normalized.includes('新密码不能为空')) {
+                setFieldFeedback(newPasswordInput, newPasswordFeedback, normalized, 'error');
+            } else if (normalized.includes('不一致')) {
+                setFieldFeedback(newPasswordInput, newPasswordFeedback, '请重新确认新密码', 'error');
+                setFieldFeedback(confirmPasswordInput, confirmPasswordFeedback, normalized, 'error');
+            } else {
+                setPanelStatus(profileStatus, normalized, 'error');
+            }
+        }
+
+        function setUsersProfileSuccess(message) {
+            setPanelStatus(document.getElementById('profile-status'), message, 'success');
+            const currentPasswordInput = document.getElementById('profile-current-password');
+            const currentPasswordFeedback = document.getElementById('profile-current-password-feedback');
+            const newPasswordInput = document.getElementById('profile-new-password');
+            const newPasswordFeedback = document.getElementById('profile-new-password-feedback');
+            const confirmPasswordInput = document.getElementById('profile-confirm-password');
+            const confirmPasswordFeedback = document.getElementById('profile-confirm-password-feedback');
+            if (currentPasswordInput && currentPasswordInput.value) {
+                setFieldFeedback(currentPasswordInput, currentPasswordFeedback, '当前密码已验证', 'success');
+            }
+            if (newPasswordInput && newPasswordInput.value) {
+                setFieldFeedback(newPasswordInput, newPasswordFeedback, '新密码已更新', 'success');
+            }
+            if (confirmPasswordInput && confirmPasswordInput.value) {
+                setFieldFeedback(confirmPasswordInput, confirmPasswordFeedback, '确认成功', 'success');
+            }
+        }
+
+        window.initUsersProfilePage = function(root = document) {
+            const profileForm = root.querySelector('#profile-form');
+            if (!profileForm || profileForm.dataset.bound === 'true') return;
+            profileForm.dataset.bound = 'true';
+
+            const avatarTrigger = root.querySelector('#avatar-trigger');
+            const avatarInput = root.querySelector('#avatar-input');
+            const avatarImage = root.querySelector('#profile-avatar-image');
+            const avatarFallback = root.querySelector('#profile-avatar-fallback');
+            const avatarStatus = root.querySelector('#avatar-status');
+            const saveButton = root.querySelector('#profile-save-btn');
+            const usernameInput = root.querySelector('#profile-username-input');
+            const currentPasswordInput = root.querySelector('#profile-current-password');
+            const newPasswordInput = root.querySelector('#profile-new-password');
+            const confirmPasswordInput = root.querySelector('#profile-confirm-password');
+
+            function setAvatarPreview(base64) {
+                if (!avatarImage || !avatarFallback) return;
+                avatarImage.src = `data:image/jpeg;base64,${base64}`;
+                avatarImage.classList.remove('is-hidden');
+                avatarFallback.classList.add('is-hidden');
+            }
+
+            async function saveAvatar(base64) {
+                const res = await fetch('/users/avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ avatar_base64: base64 })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.ok) {
+                    throw new Error(data.message || '保存头像失败');
+                }
+            }
+
+            function compressAvatar(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onerror = () => reject(new Error('读取图片失败'));
+                    reader.onload = () => {
+                        const img = new Image();
+                        img.onerror = () => reject(new Error('图片格式不支持'));
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            const maxSide = 256;
+                            const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+                            canvas.width = Math.max(1, Math.round(img.width * scale));
+                            canvas.height = Math.max(1, Math.round(img.height * scale));
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) {
+                                reject(new Error('浏览器不支持图片压缩'));
+                                return;
+                            }
+                            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+                            const [, base64] = dataUrl.split(',', 2);
+                            if (!base64) {
+                                reject(new Error('头像压缩失败'));
+                                return;
+                            }
+                            resolve(base64);
+                        };
+                        img.src = reader.result;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            [usernameInput, currentPasswordInput, newPasswordInput, confirmPasswordInput].forEach(input => {
+                if (!input) return;
+                input.addEventListener('input', () => {
+                    clearUsersProfileValidation();
+                    setPanelStatus(avatarStatus, '', 'error');
+                });
+            });
+
+            if (avatarTrigger && avatarInput) {
+                avatarTrigger.addEventListener('click', () => avatarInput.click());
+                avatarInput.addEventListener('change', async event => {
+                    const [file] = event.target.files || [];
+                    if (!file) return;
+                    setPanelStatus(avatarStatus, '', 'error');
+
+                    try {
+                        const base64 = await compressAvatar(file);
+                        await saveAvatar(base64);
+                        setAvatarPreview(base64);
+                        if (window.refreshCurrentUserSummary) {
+                            await window.refreshCurrentUserSummary();
+                        }
+                        setPanelStatus(avatarStatus, '头像已更新', 'success');
+                    } catch (error) {
+                        setPanelStatus(avatarStatus, error.message || '头像更新失败', 'error');
+                    } finally {
+                        avatarInput.value = '';
+                    }
+                });
+            }
+
+            profileForm.addEventListener('submit', async event => {
+                event.preventDefault();
+                clearUsersProfileValidation();
+                setPanelStatus(avatarStatus, '', 'error');
+
+                const form = new FormData(profileForm);
+                const newPassword = (form.get('new_password') || '').toString();
+                const confirmPassword = (form.get('confirm_password') || '').toString();
+                if (newPassword !== confirmPassword) {
+                    setFieldFeedback(newPasswordInput, document.getElementById('profile-new-password-feedback'), '请重新确认新密码', 'error');
+                    setFieldFeedback(confirmPasswordInput, document.getElementById('profile-confirm-password-feedback'), '两次输入的新密码不一致', 'error');
+                    return;
+                }
+
+                saveButton.disabled = true;
+                saveButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+                try {
+                    const body = new URLSearchParams();
+                    for (const [key, value] of form.entries()) {
+                        body.set(key, value.toString());
+                    }
+
+                    const res = await fetch('/users/profile', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Accept': 'application/json'
+                        },
+                        body
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.ok) {
+                        applyUsersProfileError(data.message || '保存失败');
+                        return;
+                    }
+
+                    usernameInput.value = data.username;
+                    setUsersProfileSuccess(data.message || '账户信息已保存');
+                    profileForm.querySelector('input[name="current_password"]').value = '';
+                    profileForm.querySelector('input[name="new_password"]').value = '';
+                    profileForm.querySelector('input[name="confirm_password"]').value = '';
+                    if (window.refreshCurrentUserSummary) {
+                        await window.refreshCurrentUserSummary();
+                    }
+                } catch (error) {
+                    setPanelStatus(document.getElementById('profile-status'), error.message || '保存失败', 'error');
+                } finally {
+                    saveButton.disabled = false;
+                    saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                }
+            });
+        };
+
         window.refreshCurrentUserSummary();
+        window.initUsersProfilePage(document);
+        document.body.addEventListener('htmx:afterSwap', function(event) {
+            window.initUsersProfilePage(event.target);
+        });
 
         // ========= 运行设置（全局，存后端 settings 表） =========
         const RUNTIME_MODES = [

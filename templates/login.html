@@ -5,6 +5,37 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ripeline - 登录</title>
     <link rel="stylesheet" href="/static/style.css?v=20260520-terminal" />
+    <style>
+      .login-input {
+        width: 100%;
+        background: var(--color-surface);
+        border: 1px solid var(--color-outline);
+        color: var(--color-on-surface);
+        font-size: 0.875rem;
+        border-radius: 0.375rem;
+        padding: 0.625rem 0.75rem;
+        transition: border-color 160ms ease, box-shadow 160ms ease;
+      }
+
+      .login-input:focus {
+        outline: none;
+        border-color: var(--color-primary);
+        box-shadow: 0 0 0 1px var(--color-primary);
+      }
+
+      .login-input.is-invalid {
+        border-color: var(--color-danger, #d64545);
+        box-shadow: 0 0 0 1px var(--color-danger, #d64545);
+      }
+
+      .login-feedback {
+        min-height: 18px;
+        margin-top: 6px;
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--color-danger, #d64545);
+      }
+    </style>
   </head>
   <body class="min-h-screen flex items-center justify-center bg-background">
     <div
@@ -30,18 +61,20 @@
         </div>
         <h1 class="text-2xl font-bold text-on-surface">Ripeline</h1>
       </div>
-      <form method="POST" action="/login" class="space-y-4">
+      <form id="login-form" method="POST" action="/login" class="space-y-4">
         <div>
           <label
             class="block text-[11px] font-bold text-on-surface-variant mb-2 uppercase tracking-wide"
             >用户名</label
           >
           <input
+            id="login-username"
             type="text"
             name="username"
             required
-            class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+            class="login-input"
           />
+          <p id="login-username-error" class="login-feedback"></p>
         </div>
         <div>
           <label
@@ -49,13 +82,16 @@
             >密码</label
           >
           <input
+            id="login-password"
             type="password"
             name="password"
             required
-            class="w-full bg-surface border border-outline text-on-surface text-sm rounded px-3 py-2.5 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-colors"
+            class="login-input"
           />
+          <p id="login-password-error" class="login-feedback"></p>
         </div>
         <button
+          id="login-submit"
           type="submit"
           class="w-full bg-primary hover:bg-primary-fixed-variant text-on-primary text-sm font-semibold rounded-lg py-2.5 px-4 transition-colors shadow-sm active:scale-95 duration-100"
         >
@@ -63,5 +99,63 @@
         </button>
       </form>
     </div>
+    <script>
+      (function() {
+        const form = document.getElementById('login-form');
+        const submitButton = document.getElementById('login-submit');
+        const usernameInput = document.getElementById('login-username');
+        const passwordInput = document.getElementById('login-password');
+        const usernameError = document.getElementById('login-username-error');
+        const passwordError = document.getElementById('login-password-error');
+
+        if (!form || !submitButton || !usernameInput || !passwordInput) return;
+
+        function clearErrors() {
+          usernameInput.classList.remove('is-invalid');
+          passwordInput.classList.remove('is-invalid');
+          usernameError.textContent = '';
+          passwordError.textContent = '';
+        }
+
+        function showError(message) {
+          passwordInput.classList.add('is-invalid');
+          passwordError.textContent = message || '登录失败';
+        }
+
+        usernameInput.addEventListener('input', clearErrors);
+        passwordInput.addEventListener('input', clearErrors);
+
+        form.addEventListener('submit', async event => {
+          event.preventDefault();
+          clearErrors();
+          submitButton.disabled = true;
+          submitButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+          try {
+            const body = new URLSearchParams(new FormData(form));
+            const response = await fetch('/login', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Accept': 'application/json'
+              },
+              body
+            });
+            const data = await response.json();
+
+            if (!response.ok || !data.ok) {
+              throw new Error(data.message || '登录失败');
+            }
+
+            window.location.assign(data.redirect_to || '/projects');
+          } catch (error) {
+            showError(error.message || '登录失败');
+          } finally {
+            submitButton.disabled = false;
+            submitButton.classList.remove('opacity-50', 'cursor-not-allowed');
+          }
+        });
+      })();
+    </script>
   </body>
 </html>

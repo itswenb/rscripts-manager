@@ -152,6 +152,54 @@
             box-shadow: 0 0 0 3px rgba(53, 37, 205, 0.14);
         }
 
+        .profile-field input.is-invalid {
+            border-color: var(--color-danger, #d64545);
+            box-shadow: 0 0 0 3px rgba(214, 69, 69, 0.14);
+        }
+
+        .profile-field input.is-valid {
+            border-color: var(--color-success, #2f8f4e);
+            box-shadow: 0 0 0 3px rgba(47, 143, 78, 0.14);
+        }
+
+        .profile-feedback {
+            min-height: 18px;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .profile-feedback.is-error {
+            color: var(--color-danger, #d64545);
+        }
+
+        .profile-feedback.is-success {
+            color: var(--color-success, #2f8f4e);
+        }
+
+        .profile-status {
+            display: none;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .profile-status.is-visible {
+            display: block;
+        }
+
+        .profile-status.is-error {
+            background: rgba(214, 69, 69, 0.1);
+            border: 1px solid rgba(214, 69, 69, 0.2);
+            color: var(--color-danger, #d64545);
+        }
+
+        .profile-status.is-success {
+            background: rgba(47, 143, 78, 0.1);
+            border: 1px solid rgba(47, 143, 78, 0.2);
+            color: var(--color-success, #2f8f4e);
+        }
+
         .profile-actions {
             display: flex;
             justify-content: flex-end;
@@ -223,23 +271,29 @@
                         <div class="profile-field">
                             <label for="profile-username-input">用户名</label>
                             <input id="profile-username-input" type="text" name="username" value="{{ profile.username }}" autocomplete="username" required>
+                            <p id="profile-username-feedback" class="profile-feedback" aria-live="polite"></p>
                         </div>
                     </div>
+                    <div id="avatar-status" class="profile-status" aria-live="polite"></div>
                 </section>
 
                 <section class="profile-panel">
                     <h2 class="profile-panel-title">修改密码</h2>
+                    <div id="profile-status" class="profile-status" aria-live="polite"></div>
                     <div class="profile-field">
                         <label for="profile-current-password">当前密码</label>
                         <input id="profile-current-password" type="password" name="current_password" autocomplete="current-password">
+                        <p id="profile-current-password-feedback" class="profile-feedback" aria-live="polite"></p>
                     </div>
                     <div class="profile-field">
                         <label for="profile-new-password">新密码</label>
                         <input id="profile-new-password" type="password" name="new_password" autocomplete="new-password">
+                        <p id="profile-new-password-feedback" class="profile-feedback" aria-live="polite"></p>
                     </div>
                     <div class="profile-field">
                         <label for="profile-confirm-password">确认新密码</label>
                         <input id="profile-confirm-password" type="password" name="confirm_password" autocomplete="new-password">
+                        <p id="profile-confirm-password-feedback" class="profile-feedback" aria-live="polite"></p>
                     </div>
                     <div class="profile-actions">
                         <button type="submit" id="profile-save-btn" class="profile-save-button">保存</button>
@@ -249,145 +303,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-    (function() {
-        const avatarTrigger = document.getElementById('avatar-trigger');
-        const avatarInput = document.getElementById('avatar-input');
-        const avatarImage = document.getElementById('profile-avatar-image');
-        const avatarFallback = document.getElementById('profile-avatar-fallback');
-        const profileForm = document.getElementById('profile-form');
-        const saveButton = document.getElementById('profile-save-btn');
-        const usernameInput = document.getElementById('profile-username-input');
-
-        if (avatarTrigger && avatarInput) {
-            avatarTrigger.addEventListener('click', () => avatarInput.click());
-            avatarInput.addEventListener('change', async event => {
-                const [file] = event.target.files || [];
-                if (!file) return;
-
-                try {
-                    const base64 = await compressAvatar(file);
-                    await saveAvatar(base64);
-                    setAvatarPreview(base64);
-                    if (window.refreshCurrentUserSummary) {
-                        await window.refreshCurrentUserSummary();
-                    }
-                    window.showToast('头像已更新', 'success');
-                } catch (error) {
-                    window.showToast(error.message || '头像更新失败', 'danger');
-                } finally {
-                    avatarInput.value = '';
-                }
-            });
-        }
-
-        if (profileForm) {
-            profileForm.addEventListener('submit', async event => {
-                event.preventDefault();
-                const form = new FormData(profileForm);
-                const newPassword = (form.get('new_password') || '').toString();
-                const confirmPassword = (form.get('confirm_password') || '').toString();
-                if (newPassword !== confirmPassword) {
-                    window.showToast('两次输入的新密码不一致', 'danger');
-                    return;
-                }
-
-                saveButton.disabled = true;
-                saveButton.classList.add('opacity-50', 'cursor-not-allowed');
-
-                try {
-                    const body = new URLSearchParams();
-                    for (const [key, value] of form.entries()) {
-                        body.set(key, value.toString());
-                    }
-
-                    const res = await fetch('/users/profile', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'Accept': 'application/json'
-                        },
-                        body
-                    });
-                    const data = await res.json();
-                    if (!res.ok || !data.ok) {
-                        throw new Error(data.message || '保存失败');
-                    }
-
-                    usernameInput.value = data.username;
-                    profileForm.querySelector('input[name="current_password"]').value = '';
-                    profileForm.querySelector('input[name="new_password"]').value = '';
-                    profileForm.querySelector('input[name="confirm_password"]').value = '';
-                    if (window.refreshCurrentUserSummary) {
-                        await window.refreshCurrentUserSummary();
-                    }
-                    window.showToast(data.message || '账户信息已保存', 'success');
-                } catch (error) {
-                    window.showToast(error.message || '保存失败', 'danger');
-                } finally {
-                    saveButton.disabled = false;
-                    saveButton.classList.remove('opacity-50', 'cursor-not-allowed');
-                }
-            });
-        }
-
-        function setAvatarPreview(base64) {
-            if (!avatarImage || !avatarFallback) return;
-            avatarImage.src = `data:image/jpeg;base64,${base64}`;
-            avatarImage.classList.remove('is-hidden');
-            avatarFallback.classList.add('is-hidden');
-        }
-
-        async function saveAvatar(base64) {
-            const res = await fetch('/users/avatar', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ avatar_base64: base64 })
-            });
-            const data = await res.json();
-            if (!res.ok || !data.ok) {
-                throw new Error(data.message || '保存头像失败');
-            }
-        }
-
-        function compressAvatar(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onerror = () => reject(new Error('读取图片失败'));
-                reader.onload = () => {
-                    const img = new Image();
-                    img.onerror = () => reject(new Error('图片格式不支持'));
-                    img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const maxSide = 256;
-                        const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
-                        canvas.width = Math.max(1, Math.round(img.width * scale));
-                        canvas.height = Math.max(1, Math.round(img.height * scale));
-                        const ctx = canvas.getContext('2d');
-                        if (!ctx) {
-                            reject(new Error('浏览器不支持图片压缩'));
-                            return;
-                        }
-                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-                        const [, base64] = dataUrl.split(',', 2);
-                        if (!base64) {
-                            reject(new Error('头像压缩失败'));
-                            return;
-                        }
-                        resolve(base64);
-                    };
-                    img.src = reader.result;
-                };
-                reader.readAsDataURL(file);
-            });
-        }
-    })();
-</script>
 {% endblock %}

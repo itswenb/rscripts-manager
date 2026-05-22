@@ -120,81 +120,8 @@ pub async fn update_profile(
         ));
     }
 
-    let Some(admin) = load_admin_row(&state.pool).await else {
-        return Err(error_json(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "未找到当前管理员账户",
-        ));
-    };
-
-    let username = form.username.trim();
-    let current_password = form.current_password.trim();
-    let new_password = form.new_password.trim();
-    let confirm_password = form.confirm_password.trim();
-
-    if username.is_empty() {
-        return Err(error_json(StatusCode::BAD_REQUEST, "用户名不能为空"));
-    }
-
-    let username_changed = username != admin.username;
-    let password_changed = !new_password.is_empty() || !confirm_password.is_empty();
-
-    if !username_changed && !password_changed {
-        return Ok(Json(UpdateProfileResponse {
-            ok: true,
-            username: admin.username,
-            message: "没有需要保存的修改".into(),
-        }));
-    }
-
-    if current_password.is_empty() {
-        return Err(error_json(StatusCode::BAD_REQUEST, "请输入当前密码"));
-    }
-
-    if !crate::verify_password(current_password, &admin.password_hash) {
-        return Err(error_json(StatusCode::BAD_REQUEST, "当前密码不正确"));
-    }
-
-    let password_hash = if password_changed {
-        if new_password.is_empty() {
-            return Err(error_json(StatusCode::BAD_REQUEST, "新密码不能为空"));
-        }
-        if new_password != confirm_password {
-            return Err(error_json(
-                StatusCode::BAD_REQUEST,
-                "两次输入的新密码不一致",
-            ));
-        }
-        crate::hash_password(new_password)
-    } else {
-        admin.password_hash
-    };
-
-    sqlx::query("UPDATE admin SET username = ?, password_hash = ? WHERE id = 1")
-        .bind(username)
-        .bind(&password_hash)
-        .execute(&state.pool)
-        .await
-        .map_err(|_| error_json(StatusCode::INTERNAL_SERVER_ERROR, "保存账户信息失败"))?;
-
-    crate::audit(
-        &state.pool,
-        username,
-        "update_profile",
-        username,
-        if password_changed {
-            "username,password"
-        } else {
-            "username"
-        },
-    )
-    .await;
-
-    Ok(Json(UpdateProfileResponse {
-        ok: true,
-        username: username.to_string(),
-        message: "账户信息已保存".into(),
-    }))
+    let response = apply_profile_update(&state.pool, form).await?;
+    Ok(Json(response))
 }
 
 pub async fn update_avatar(
@@ -294,4 +221,156 @@ fn error_json(status: StatusCode, message: &str) -> (StatusCode, Json<serde_json
         status,
         Json(serde_json::json!({ "ok": false, "message": message })),
     )
+}
+
+async fn apply_profile_update(
+    pool: &sqlx::SqlitePool,
+    form: UpdateProfileForm,
+) -> Result<UpdateProfileResponse, (StatusCode, Json<serde_json::Value>)> {
+    let Some(admin) = load_admin_row(pool).await else {
+        return Err(error_json(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "未找到当前管理员账户",
+        ));
+    };
+
+    let username = form.username.trim();
+    let current_password = form.current_password;
+    let new_password = form.new_password;
+    let confirm_password = form.confirm_password;
+
+    if username.is_empty() {
+        return Err(error_json(StatusCode::BAD_REQUEST, "用户名不能为空"));
+    }
+
+    let username_changed = username != admin.username;
+    let password_changed = !new_password.is_empty() || !confirm_password.is_empty();
+
+    if !username_changed && !password_changed {
+        return Ok(UpdateProfileResponse {
+            ok: true,
+            username: admin.username,
+            message: "没有需要保存的修改".into(),
+        });
+    }
+
+    if current_password.is_empty() {
+        return Err(error_json(StatusCode::BAD_REQUEST, "请输入当前密码"));
+    }
+
+    if !crate::verify_password(&current_password, &admin.password_hash) {
+        return Err(error_json(StatusCode::BAD_REQUEST, "当前密码不正确"));
+    }
+
+    let password_hash = if password_changed {
+        if new_password.is_empty() {
+            return Err(error_json(StatusCode::BAD_REQUEST, "新密码不能为空"));
+        }
+        if new_password != confirm_password {
+            return Err(error_json(
+                StatusCode::BAD_REQUEST,
+                "两次输入的新密码不一致",
+            ));
+        }
+        crate::hash_password(&new_password)
+    } else {
+        admin.password_hash
+    };
+
+    sqlx::query("UPDATE admin SET username = ?, password_hash = ? WHERE id = 1")
+        .bind(username)
+        .bind(&password_hash)
+        .execute(pool)
+        .await
+        .map_err(|_| error_json(StatusCode::INTERNAL_SERVER_ERROR, "保存账户信息失败"))?;
+
+    crate::audit(
+        pool,
+        username,
+        "update_profile",
+        username,
+        if password_changed {
+            "username,password"
+        } else {
+            "username"
+        },
+    )
+    .await;
+
+    Ok(UpdateProfileResponse {
+        ok: true,
+        username: username.to_string(),
+        message: "账户信息已保存".into(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_profile_update, UpdateProfileForm};
+    use crate::verify_password;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_db_url(label: &str) -> String {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!(
+            "ripeline-users-{label}-{}-{nanos}.db",
+            std::process::id()
+        ));
+        format!("sqlite:{}?mode=rwc", path.display())
+    }
+
+    async fn test_pool(label: &str) -> sqlx::SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&temp_db_url(label))
+            .await
+            .expect("connect sqlite db");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn apply_profile_update_replaces_admin_password_hash() {
+        let pool = test_pool("profile-update").await;
+        let old_hash = crate::hash_password("old-password");
+
+        sqlx::query("INSERT INTO admin (id, username, password_hash) VALUES (1, ?, ?)")
+            .bind("admin")
+            .bind(&old_hash)
+            .execute(&pool)
+            .await
+            .expect("seed admin");
+
+        let response = apply_profile_update(
+            &pool,
+            UpdateProfileForm {
+                username: "admin".into(),
+                current_password: "old-password".into(),
+                new_password: "new-password".into(),
+                confirm_password: "new-password".into(),
+            },
+        )
+        .await
+        .expect("update profile");
+
+        assert!(response.ok);
+        assert_eq!(response.username, "admin");
+
+        let stored_hash =
+            sqlx::query_scalar::<_, String>("SELECT password_hash FROM admin WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("load updated hash");
+        assert!(verify_password("new-password", &stored_hash));
+        assert!(!verify_password("old-password", &stored_hash));
+
+        pool.close().await;
+    }
 }

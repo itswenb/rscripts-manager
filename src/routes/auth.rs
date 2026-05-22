@@ -1,9 +1,11 @@
 use crate::AppState;
 use axum::extract::State;
-use axum::response::{Html, Redirect};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
+use axum::Json;
 use axum_extra::extract::cookie::{Cookie, CookieJar};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const COOKIE_NAME: &str = "ripeline_session";
 
@@ -17,11 +19,19 @@ pub struct LoginForm {
     pub password: String,
 }
 
+#[derive(Serialize)]
+struct LoginResponse {
+    ok: bool,
+    redirect_to: Option<&'static str>,
+    message: Option<&'static str>,
+}
+
 pub async fn login(
     State(state): State<AppState>,
     jar: CookieJar,
+    headers: HeaderMap,
     Form(form): Form<LoginForm>,
-) -> (CookieJar, Redirect) {
+) -> Response {
     let row = sqlx::query_as::<_, (String, String)>(
         "SELECT username, password_hash FROM admin WHERE username = ?",
     )
@@ -37,10 +47,37 @@ pub async fn login(
                 .path("/")
                 .http_only(true)
                 .build();
-            return (jar.add(cookie), Redirect::to("/projects"));
+            let jar = jar.add(cookie);
+
+            if wants_json(&headers) {
+                return (
+                    jar,
+                    Json(LoginResponse {
+                        ok: true,
+                        redirect_to: Some("/projects"),
+                        message: None,
+                    }),
+                )
+                    .into_response();
+            }
+
+            return (jar, Redirect::to("/projects")).into_response();
         }
     }
-    (jar, Redirect::to("/login?error=1"))
+
+    if wants_json(&headers) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(LoginResponse {
+                ok: false,
+                redirect_to: None,
+                message: Some("用户名或密码错误"),
+            }),
+        )
+            .into_response();
+    }
+
+    (jar, Redirect::to("/login?error=1")).into_response()
 }
 
 pub async fn logout(jar: CookieJar) -> (CookieJar, Redirect) {
@@ -74,4 +111,11 @@ fn verify_token(token: &str, secret: &str) -> bool {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(msg.as_bytes());
     hex::encode(mac.finalize().into_bytes()) == sig
+}
+
+fn wants_json(headers: &HeaderMap) -> bool {
+    headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.contains("application/json"))
 }
