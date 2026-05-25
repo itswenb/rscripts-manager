@@ -1,0 +1,71 @@
+<div class="flex h-[28rem] flex-col overflow-hidden">
+    <div class="flex items-center justify-between border-b border-outline-variant bg-surface px-3 py-2 shrink-0">
+        <div class="flex min-w-0 items-center text-sm font-medium text-secondary">
+            {% for seg in breadcrumbs %}
+            {% if !loop.last %}
+            <button
+                type="button"
+                onclick="loadDataFilePicker('{{ seg.path }}')"
+                class="truncate hover:text-on-surface transition-colors"
+            >{{ seg.name }}</button>
+            <i data-lucide="chevron-right" class="mx-1 h-4 w-4 shrink-0"></i>
+            {% else %}
+            <span class="truncate text-on-surface">{{ seg.name }}</span>
+            {% endif %}
+            {% endfor %}
+        </div>
+        <div class="text-[11px] font-mono text-muted-text shrink-0">{{ current_path }}</div>
+    </div>
+
+    <div class="flex-1 overflow-auto">
+        <table class="w-full text-sm">
+            <thead class="sticky top-0 z-10 bg-surface-container-low">
+                <tr class="text-left text-[11px] font-bold uppercase tracking-wider text-secondary">
+                    <th class="w-10 px-4 py-2.5"></th>
+                    <th class="px-4 py-2.5">名称</th>
+                    <th class="px-4 py-2.5">类型</th>
+                    <th class="px-4 py-2.5 text-right">大小</th>
+                    <th class="px-4 py-2.5">修改时间</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-border">
+                {% for entry in entries %}
+                <tr class="hover:bg-surface-container-low transition-colors">
+                    <td class="px-4 py-2 text-center">
+                        {% if entry.is_dir %}
+                        <i data-lucide="folder" class="h-4 w-4 text-primary"></i>
+                        {% else %}
+                        <i data-lucide="file" class="h-4 w-4 text-muted-text"></i>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2 font-medium">
+                        {% if entry.is_dir %}
+                        <button
+                            type="button"
+                            onclick="loadDataFilePicker('{{ current_path }}{% if !current_path.is_empty() %}/{% endif %}{{ entry.name }}')"
+                            class="max-w-full truncate text-left hover:text-primary transition-colors"
+                        >{{ entry.name }}/</button>
+                        {% else %}
+                        <button
+                            type="button"
+                            onclick="selectFile('{% if !data_relative_prefix.is_empty() %}{{ data_relative_prefix }}/{% endif %}{{ entry.name }}')"
+                            class="max-w-full truncate text-left hover:text-primary transition-colors"
+                            title="{{ entry.name }}"
+                        >{{ entry.name }}</button>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-secondary">{{ entry.file_type }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-secondary">{{ entry.size }}</td>
+                    <td class="px-4 py-2 whitespace-nowrap text-secondary">{{ entry.modified }}</td>
+                </tr>
+                {% endfor %}
+
+                {% if entries.is_empty() %}
+                <tr>
+                    <td colspan="5" class="px-4 py-12 text-center text-muted-text">当前目录下没有可选数据文件</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>

@@ -40,6 +40,7 @@ pub struct Breadcrumb {
 struct FilesTemplate {
     active_nav: &'static str,
     current_path: String,
+    full_current_path: String,
     directories: Vec<DirEntry>,
     breadcrumbs: Vec<Breadcrumb>,
     entries: Vec<FileEntry>,
@@ -49,8 +50,26 @@ struct FilesTemplate {
 #[template(path = "fragments/file_table.html")]
 struct FileTableFragment {
     current_path: String,
+    full_current_path: String,
     breadcrumbs: Vec<Breadcrumb>,
     entries: Vec<FileEntry>,
+}
+
+#[derive(Template)]
+#[template(path = "fragments/data_file_picker.html")]
+struct DataFilePickerFragment {
+    current_path: String,
+    data_relative_prefix: String,
+    breadcrumbs: Vec<Breadcrumb>,
+    entries: Vec<FileEntry>,
+}
+
+fn full_current_path(base: &std::path::Path, rel: &str) -> String {
+    if rel.is_empty() {
+        base.to_string_lossy().into_owned()
+    } else {
+        base.join(rel).to_string_lossy().into_owned()
+    }
 }
 
 fn is_htmx(headers: &HeaderMap) -> bool {
@@ -64,6 +83,11 @@ fn is_nav_request(headers: &HeaderMap) -> bool {
 #[derive(Deserialize)]
 pub struct FileQuery {
     pub path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct FileListResponse {
+    pub files: Vec<String>,
 }
 
 async fn build_file_data(
@@ -195,6 +219,32 @@ fn special_dir_meta(name: &str) -> FileMeta {
     }
 }
 
+fn is_selectable_data_file(name: &str) -> bool {
+    matches!(
+        name.rsplit('.')
+            .next()
+            .unwrap_or("")
+            .to_ascii_lowercase()
+            .as_str(),
+        "csv" | "tsv" | "txt" | "xls" | "xlsx" | "rds" | "rda" | "rdata"
+    )
+}
+
+fn filter_picker_entries(entries: Vec<FileEntry>) -> Vec<FileEntry> {
+    entries
+        .into_iter()
+        .filter(|entry| entry.is_dir || is_selectable_data_file(&entry.name))
+        .collect()
+}
+
+fn data_relative_prefix(path: &str) -> String {
+    path.strip_prefix("data/")
+        .or_else(|| path.strip_prefix("data"))
+        .unwrap_or(path)
+        .trim_matches('/')
+        .to_string()
+}
+
 pub async fn list(
     State(state): State<AppState>,
     jar: CookieJar,
@@ -212,10 +262,12 @@ pub async fn list(
     }
 
     let (directories, breadcrumbs, entries) = build_file_data(&base, &rel).await;
+    let full_current_path = full_current_path(&base, &rel);
 
     if is_htmx(&headers) && !is_nav_request(&headers) {
         let tmpl = FileTableFragment {
             current_path: rel,
+            full_current_path,
             breadcrumbs,
             entries,
         };
@@ -224,6 +276,7 @@ pub async fn list(
         let tmpl = FilesTemplate {
             active_nav: "files",
             current_path: rel,
+            full_current_path,
             directories,
             breadcrumbs,
             entries,
@@ -262,8 +315,10 @@ pub async fn upload(
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &upload_path).await;
+        let full_path = full_current_path(&base, &upload_path);
         let tmpl = FileTableFragment {
             current_path: upload_path,
+            full_current_path: full_path,
             breadcrumbs,
             entries,
         };
@@ -271,6 +326,85 @@ pub async fn upload(
     } else {
         Ok(Redirect::to(&format!("/files?path={upload_path}")).into_response())
     }
+}
+
+async fn list_files_recursive(
+    base: &std::path::Path,
+    rel: &str,
+) -> Result<Vec<String>, std::io::Error> {
+    let root = base.join(rel);
+    let mut pending = vec![(root, rel.trim_matches('/').to_string())];
+    let mut files = Vec::new();
+
+    while let Some((dir, prefix)) = pending.pop() {
+        let mut read_dir = tokio::fs::read_dir(&dir).await?;
+        while let Some(entry) = read_dir.next_entry().await? {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let child_rel = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            let path = entry.path();
+            let metadata = entry.metadata().await?;
+            if metadata.is_dir() {
+                pending.push((path, child_rel));
+            } else if metadata.is_file() {
+                files.push(child_rel);
+            }
+        }
+    }
+
+    files.sort();
+    Ok(files)
+}
+
+pub async fn list_json(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(q): Query<FileQuery>,
+) -> Result<Json<FileListResponse>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
+
+    let base = std::path::PathBuf::from(&state.data_dir);
+    let rel = q.path.clone().unwrap_or_default();
+    let dir = base.join(&rel);
+    if !dir.starts_with(&base) || !dir.is_dir() {
+        return Err(Redirect::to("/files"));
+    }
+
+    let files = list_files_recursive(&base, &rel).await.unwrap_or_default();
+    Ok(Json(FileListResponse { files }))
+}
+
+pub async fn data_picker(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Query(q): Query<FileQuery>,
+) -> Result<Response, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
+
+    let base = std::path::PathBuf::from(&state.data_dir);
+    let rel = q.path.clone().unwrap_or_else(|| "data".to_string());
+    let dir = base.join(&rel);
+    if !dir.starts_with(&base) || !dir.is_dir() {
+        return Err(Redirect::to("/files"));
+    }
+
+    let (_, breadcrumbs, entries) = build_file_data(&base, &rel).await;
+    let tmpl = DataFilePickerFragment {
+        current_path: rel,
+        data_relative_prefix: data_relative_prefix(
+            &q.path.clone().unwrap_or_else(|| "data".to_string()),
+        ),
+        breadcrumbs,
+        entries: filter_picker_entries(entries),
+    };
+    Ok(Html(tmpl.render().unwrap_or_default()).into_response())
 }
 
 #[derive(Serialize)]
@@ -343,8 +477,10 @@ pub async fn mkdir(
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &form.path).await;
+        let full_path = full_current_path(&base, &form.path);
         let tmpl = FileTableFragment {
             current_path: form.path,
+            full_current_path: full_path,
             breadcrumbs,
             entries,
         };
@@ -384,8 +520,10 @@ pub async fn delete(
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &parent).await;
+        let full_path = full_current_path(&base, &parent);
         let tmpl = FileTableFragment {
             current_path: parent,
+            full_current_path: full_path,
             breadcrumbs,
             entries,
         };
@@ -447,8 +585,10 @@ pub async fn rename(
 
     if is_htmx(&headers) {
         let (_, breadcrumbs, entries) = build_file_data(&base, &parent_rel).await;
+        let full_path = full_current_path(&base, &parent_rel);
         let tmpl = FileTableFragment {
             current_path: parent_rel,
+            full_current_path: full_path,
             breadcrumbs,
             entries,
         };

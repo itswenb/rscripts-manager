@@ -36,6 +36,8 @@ enum CliCommand {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    configure_console_encoding();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -98,6 +100,9 @@ async fn run_server() -> Result<(), String> {
 
     let app = Router::new()
         .merge(routes::router(state.clone()))
+        .route("/favicon.ico", get(favicon_ico))
+        .route("/favicon.svg", get(favicon_svg))
+        .route("/apple-touch-icon.png", get(apple_touch_icon))
         .route("/static/{*path}", get(static_asset))
         .layer(DefaultBodyLimit::max(512 * 1024 * 1024));
 
@@ -357,6 +362,21 @@ fn terminal_link(label: &str, url: &str) -> String {
     format!("\x1b]8;;{url}\x1b\\{label}\x1b]8;;\x1b\\")
 }
 
+#[cfg(windows)]
+fn configure_console_encoding() {
+    use windows_sys::Win32::System::Console::{SetConsoleCP, SetConsoleOutputCP};
+
+    const UTF8_CODE_PAGE: u32 = 65001;
+
+    unsafe {
+        let _ = SetConsoleCP(UTF8_CODE_PAGE);
+        let _ = SetConsoleOutputCP(UTF8_CODE_PAGE);
+    }
+}
+
+#[cfg(not(windows))]
+fn configure_console_encoding() {}
+
 fn expand_tilde(path: &str) -> String {
     if path == "~" {
         return std::env::var("HOME").unwrap_or_else(|_| path.to_string());
@@ -402,6 +422,26 @@ async fn static_asset(Path(path): Path<String>) -> Response {
         return StatusCode::NOT_FOUND.into_response();
     }
 
+    asset_response(clean_path)
+}
+
+async fn favicon_ico() -> Response {
+    asset_response("favicon.ico")
+}
+
+async fn favicon_svg() -> Response {
+    asset_response("favicon.svg")
+}
+
+async fn apple_touch_icon() -> Response {
+    asset_response("apple-touch-icon.png")
+}
+
+fn asset_response(clean_path: &str) -> Response {
+    if clean_path.is_empty() || clean_path.split('/').any(|segment| segment == "..") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+
     let Some((_, bytes)) = STATIC_ASSETS
         .iter()
         .find(|(asset_path, _)| *asset_path == clean_path)
@@ -429,6 +469,7 @@ fn content_type(path: &str) -> &'static str {
         "json" => "application/json; charset=utf-8",
         "html" => "text/html; charset=utf-8",
         "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",

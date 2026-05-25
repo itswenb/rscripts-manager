@@ -34,6 +34,15 @@ pub fn router(state: AppState) -> Router {
             "/projects/{id}/run-node/{node_id}",
             post(projects::run_node),
         )
+        .route(
+            "/projects/{id}/run-through-node/{node_id}",
+            post(projects::run_through_node),
+        )
+        .route("/projects/{id}/run-group", post(projects::run_group))
+        .route(
+            "/projects/{id}/run-through-group",
+            post(projects::run_through_group),
+        )
         .route("/projects/{id}/cancel", post(projects::cancel_flow))
         .route("/projects/{id}/run-status", get(projects::run_status))
         .route("/projects/{id}/run-logs", get(projects::run_logs))
@@ -53,6 +62,8 @@ pub fn router(state: AppState) -> Router {
             delete(pipelines::delete).put(pipelines::update),
         )
         .route("/files", get(files::list))
+        .route("/files/picker", get(files::data_picker))
+        .route("/files/list-json", get(files::list_json))
         .route("/files/upload", post(files::upload))
         .route("/files/upload-chunk", post(files::upload_chunk))
         .route("/files/mkdir", post(files::mkdir))

@@ -53,12 +53,12 @@
     <div id="graph-container" class="flex-1 relative overflow-hidden">
         <canvas id="graph-canvas" style="position:absolute;top:0;left:0;width:100%;height:100%;image-rendering:auto;"></canvas>
         <!-- Node Info Panel -->
-        <div id="node-info-panel" class="hidden absolute top-3 right-3 w-72 bg-surface-container-lowest/95 backdrop-blur border border-border rounded-xl shadow-lg z-40 overflow-hidden">
-            <div class="px-4 py-2.5 border-b border-border bg-surface-container-low/50">
+        <div id="node-info-panel" class="hidden absolute top-3 right-3 w-72 max-h-[66.666vh] flex flex-col bg-surface-container-lowest/95 backdrop-blur border border-border rounded-xl shadow-lg z-40 overflow-hidden">
+            <div class="px-4 py-2.5 border-b border-border bg-surface-container-low/50 shrink-0">
                 <h3 id="node-info-title" class="text-sm font-bold text-on-surface truncate"></h3>
                 <p id="node-info-file" class="text-[11px] text-muted-text font-mono truncate mt-0.5"></p>
             </div>
-            <div class="p-3 space-y-2 max-h-64 overflow-y-auto text-xs">
+            <div class="p-3 space-y-2 min-h-0 overflow-y-auto text-xs">
                 <div id="node-info-inputs"></div>
                 <div id="node-info-outputs"></div>
                 <div id="node-info-sif" class="mt-2 pt-2 border-t border-border hidden">
@@ -101,7 +101,7 @@
 </sl-dialog>
 
 <!-- File Picker Dialog -->
-<sl-dialog id="file-picker-dialog" label="选择数据文件" style="--width: 28rem;">
+<sl-dialog id="file-picker-dialog" label="选择数据文件" style="--width: min(72rem, 92vw);">
     <div id="file-picker-content" class="max-h-80 overflow-y-auto text-sm"></div>
 </sl-dialog>
 
@@ -285,13 +285,28 @@ LGraphCanvas.prototype.getCanvasMenuOptions = function() {
 
 // Custom node menu
 const _origNodeMenu = LGraphCanvas.prototype.getNodeMenuOptions;
+const nonScriptNodeTypes = ['datasource/File', 'constant/Value', 'viewer/Preview'];
+function isScriptGraphNode(node) {
+    return node && !nonScriptNodeTypes.includes(node.type);
+}
+
 LGraphCanvas.prototype.getNodeMenuOptions = function(node) {
     const opts = _origNodeMenu.call(this, node);
-    if (node.type !== 'datasource/File') {
+    if (isScriptGraphNode(node)) {
         opts.unshift(null);
         opts.unshift({content: "查看输出", callback: () => viewNodeOutput(node)});
+        opts.unshift({content: "运行到此节点结束", callback: () => runThroughNode(node)});
         opts.unshift({content: "执行此节点", callback: () => runSingleNode(node)});
     }
+    return opts;
+};
+
+const _origGroupMenu = LGraphCanvas.prototype.getGroupMenuOptions;
+LGraphCanvas.prototype.getGroupMenuOptions = function(group) {
+    const opts = _origGroupMenu.call(this, group);
+    opts.unshift(null);
+    opts.unshift({content: "运行到此分组结尾", callback: () => runGroupScope(group, true)});
+    opts.unshift({content: "运行此分组", callback: () => runGroupScope(group, false)});
     return opts;
 };
 
@@ -526,40 +541,124 @@ async function registerNodeTypes() {
     // DataSource node
     function DataSourceNode() {
         this.addOutput("file", "file");
-        this.properties = { file_path: "", output_type: "file" };
-        this.size = [220, 100];
+        this.properties = { file_path: "" };
+        this.size = [280, 62];
         this.title = "数据源";
-        const self = this;
-        const fileTypes = ["file","table","image","pdf","rdata"];
-        this.addWidget("combo", "类型", "file", (v) => {
-            self.properties.output_type = v;
-            self.outputs[0].type = v;
-            self.outputs[0].name = v;
-            self.outputs[0].color_on = NODE_THEME.types[v];
-            self.outputs[0].color_off = NODE_THEME.types[v];
-            self.setDirtyCanvas(true);
-        }, { values: fileTypes });
         this.outputs[0].color_on = NODE_THEME.types["file"];
         this.outputs[0].color_off = NODE_THEME.types["file"];
         this.refreshSize();
     }
+    DataSourceNode.prototype._typeFromPath = function(filePath) {
+        const ext = (filePath.split('.').pop() || '').toLowerCase();
+        const extMap = {
+            csv: 'table',
+            tsv: 'table',
+            txt: 'table',
+            xls: 'table',
+            xlsx: 'table',
+            rds: 'rdata',
+            rda: 'rdata',
+            rdata: 'rdata',
+        };
+        return extMap[ext] || 'file';
+    };
+    DataSourceNode.prototype._applyOutputType = function() {
+        const type = this.properties.file_path
+            ? this._typeFromPath(this.properties.file_path)
+            : 'file';
+        this.outputs[0].type = type;
+        this.outputs[0].name = type;
+        this.outputs[0].color_on = NODE_THEME.types[type] || NODE_THEME.types.file;
+        this.outputs[0].color_off = NODE_THEME.types[type] || NODE_THEME.types.file;
+        this.properties.output_type = type;
+    };
+    DataSourceNode.prototype._fileLabel = function() {
+        return this.properties.file_path
+            ? this.properties.file_path.split('/').pop()
+            : '双击选择文件';
+    };
+    DataSourceNode.prototype._truncate = function(ctx, text, maxWidth) {
+        if (ctx.measureText(text).width <= maxWidth) return text;
+        let value = text;
+        while (value.length > 1 && ctx.measureText(value + '…').width > maxWidth) {
+            value = value.slice(0, -1);
+        }
+        return value + '…';
+    };
+    DataSourceNode.prototype._wrapLabel = function(ctx, text, maxWidth, maxLines) {
+        const lines = [];
+        let rest = text;
+        while (rest && (!maxLines || lines.length < maxLines)) {
+            let take = rest.length;
+            while (take > 1 && ctx.measureText(rest.slice(0, take)).width > maxWidth) {
+                take -= 1;
+            }
+            if (maxLines && lines.length === maxLines - 1 && take < rest.length) {
+                lines.push(this._truncate(ctx, rest, maxWidth));
+                rest = '';
+            } else {
+                lines.push(rest.slice(0, take));
+                rest = rest.slice(take);
+            }
+        }
+        return lines;
+    };
     DataSourceNode.prototype.refreshSize = function() {
-        const label = this.properties.file_path
-            ? "数据源: " + this.properties.file_path.split('/').pop()
-            : "数据源";
-        const estimatedWidth = Math.max(220, Math.min(520, label.length * 14 + 40));
-        this.size = [estimatedWidth, 100];
+        this.title = "数据源";
+        this.size = [280, 48];
+        this._applyOutputType();
+    };
+    DataSourceNode.prototype.onConfigure = function() {
+        this.refreshSize();
     };
     DataSourceNode.prototype.onDblClick = function() { openFilePicker(this); };
     DataSourceNode.prototype.onDrawForeground = function(ctx) {
-        if (this.properties.file_path) {
-            ctx.font = "11px monospace";
-            ctx.fillStyle = "#aaa";
-            const name = this.properties.file_path.split('/').pop();
-            ctx.fillText(name, 10, this.size[1] - 8);
+        const labelX = 10;
+        const outputReservedWidth = 88;
+        const pencilWidth = 19;
+        const labelAreaWidth = this.size[0] - labelX - outputReservedWidth;
+
+        ctx.save();
+        ctx.font = '12px sans-serif';
+        ctx.fillStyle = '#8a8f98';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const labelLines = this.properties.file_path
+            ? this._wrapLabel(ctx, this._fileLabel(), labelAreaWidth - pencilWidth)
+            : [this._fileLabel()];
+        const lineHeight = 16;
+        const textHeight = labelLines.length * lineHeight;
+        const desiredHeight = Math.max(48, textHeight + 20);
+        if (this.size[1] !== desiredHeight) {
+            this.size[1] = desiredHeight;
+            this.setDirtyCanvas(true, true);
         }
+        const labelY = (this.size[1] - textHeight) / 2 + lineHeight / 2;
+        labelLines.forEach((line, index) => {
+            ctx.fillText(line, labelX, labelY + index * lineHeight);
+        });
+        const lastLine = labelLines[labelLines.length - 1];
+        const pencilX = labelX + ctx.measureText(lastLine).width + 9;
+        const pencilY = labelY + (labelLines.length - 1) * lineHeight;
+
+        ctx.strokeStyle = '#697386';
+        ctx.lineWidth = 1.6;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pencilX - 5, pencilY + 5);
+        ctx.lineTo(pencilX + 4, pencilY - 4);
+        ctx.lineTo(pencilX + 7, pencilY - 1);
+        ctx.lineTo(pencilX - 2, pencilY + 8);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(pencilX - 6, pencilY + 8);
+        ctx.lineTo(pencilX - 2, pencilY + 8);
+        ctx.stroke();
+        ctx.restore();
     };
     DataSourceNode.prototype.onExecute = function() {
+        this._applyOutputType();
         this.setOutputData(0, this.properties.file_path);
     };
     LiteGraph.registerNodeType("datasource/File", DataSourceNode);
@@ -831,10 +930,9 @@ async function registerNodeTypes() {
         // Add to menu
         const btn = document.createElement('button');
         btn.className = 'w-full text-left px-3 py-1.5 text-sm hover:bg-surface-container-low transition-colors';
-        const ioInfo = [];
-        if (script.inputs.length) ioInfo.push(script.inputs.map(i => `${i.name}:${i.type||'file'}`).join(', '));
-        if (script.outputs.length) ioInfo.push('→ ' + script.outputs.map(o => `${o.name}:${o.type||'file'}`).join(', '));
-        btn.innerHTML = `<div class="flex items-center gap-2"><i data-lucide="file-code-2" class="w-3.5 h-3.5 text-secondary shrink-0"></i><div><div>${script.title || script.filename}</div>${ioInfo.length ? `<div class="text-[10px] text-muted-text font-mono mt-0.5">${ioInfo.join(' ')}</div>` : ''}</div></div>`;
+        const title = escapeHtml(script.title || script.filename);
+        const description = escapeHtml(script.description || '');
+        btn.innerHTML = `<div class="flex items-start gap-2"><i data-lucide="file-code-2" class="w-3.5 h-3.5 text-secondary shrink-0 mt-0.5"></i><div class="min-w-0"><div class="truncate">${title}</div>${description ? `<div class="text-[11px] text-muted-text mt-0.5 line-clamp-2">${description}</div>` : ''}</div></div>`;
         btn.onclick = () => { addScriptNode(typeName); document.getElementById('add-node-menu').classList.add('hidden'); };
         listEl.appendChild(btn);
     });
@@ -882,44 +980,37 @@ async function openFilePicker(node) {
     const content = document.getElementById('file-picker-content');
     content.innerHTML = '<div class="text-muted-text">加载中...</div>';
     window.showShoelaceDialog(dialog);
-
-    const res = await fetch('/files?path=data');
-    const html = await res.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    const rows = doc.querySelectorAll('table tbody tr');
-
-    let items = '';
-    rows.forEach(row => {
-        const nameEl = row.querySelector('td:nth-child(2) a');
-        if (!nameEl) return;
-        const name = nameEl.textContent.trim();
-        if (name.endsWith('/')) return;
-        items += `<button class="w-full text-left px-3 py-2 hover:bg-surface-container-low rounded transition-colors flex items-center gap-2" onclick="selectFile(this, '${name}')"><i data-lucide="file" class="w-4 h-4 text-secondary"></i>${name}</button>`;
-    });
-    content.innerHTML = items || '<div class="text-muted-text">data/ 目录下无文件</div>';
-    lucide.createIcons();
-
     window._pickerNode = node;
+
+    let initialPath = 'data';
+    if (node && node.properties && node.properties.file_path && node.properties.file_path.startsWith('data/')) {
+        const parts = node.properties.file_path.split('/');
+        parts.pop();
+        initialPath = parts.join('/') || 'data';
+    }
+    await loadDataFilePicker(initialPath);
 }
 
-function selectFile(el, filename) {
+async function loadDataFilePicker(path) {
+    const content = document.getElementById('file-picker-content');
+    if (!content) return;
+    content.innerHTML = '<div class="text-muted-text px-3 py-4">加载中...</div>';
+
+    const res = await fetch('/files/picker?path=' + encodeURIComponent(path || 'data'));
+    if (!res.ok) {
+        content.innerHTML = '<div class="text-danger px-3 py-4">加载失败</div>';
+        return;
+    }
+    content.innerHTML = await res.text();
+    lucide.createIcons();
+}
+
+function selectFile(filename) {
     const node = window._pickerNode;
     if (node) {
         node.properties.file_path = 'data/' + filename;
-        node.title = "数据源: " + filename;
         node.refreshSize();
-        // Auto-detect output type from extension
-        const ext = filename.split('.').pop().toLowerCase();
-        const extMap = {csv:'table',tsv:'table',xls:'table',xlsx:'table',png:'image',jpg:'image',jpeg:'image',svg:'image',pdf:'pdf',rds:'rdata',rdata:'rdata'};
-        const t = extMap[ext] || 'file';
-        node.properties.output_type = t;
-        node.outputs[0].type = t;
-        node.outputs[0].name = t;
-        node.outputs[0].color_on = NODE_THEME.types[t];
-        node.outputs[0].color_off = NODE_THEME.types[t];
-        // Update combo widget
-        if (node.widgets && node.widgets[0]) node.widgets[0].value = t;
+        node._applyOutputType();
         canvas.setDirty(true, true);
     }
     window.hideShoelaceDialog('file-picker-dialog');
@@ -940,6 +1031,9 @@ async function loadGraph() {
     const data = await res.json();
     if (data && data.nodes) {
         graph.configure(data);
+        graph._nodes
+            .filter(node => node.type === 'datasource/File' && typeof node.refreshSize === 'function')
+            .forEach(node => node.refreshSize());
     }
 }
 
@@ -1295,8 +1389,7 @@ function updateNodeColors(statusData) {
 }
 
 async function viewNodeOutput(node) {
-    const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
-    const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
+    const scriptNodes = graph._nodes.filter(isScriptGraphNode);
     scriptNodes.sort((a, b) => a.id - b.id);
     const idx = scriptNodes.indexOf(node);
     if (idx < 0) return;
@@ -1322,12 +1415,6 @@ async function viewNodeOutput(node) {
 
 async function runSingleNode(node) {
     await saveGraph();
-    const nonScript = ['datasource/File', 'constant/Value', 'viewer/Preview'];
-    const scriptNodes = graph._nodes.filter(n => !nonScript.includes(n.type));
-    scriptNodes.sort((a, b) => a.id - b.id);
-    const idx = scriptNodes.indexOf(node);
-    if (idx < 0) return;
-
     const res = await fetch(`/projects/${PROJECT_ID}/run-node/${encodeURIComponent(node.id)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1346,6 +1433,69 @@ async function runSingleNode(node) {
         setTerminalContent(`\u001b[1;36m正在执行节点:\u001b[0m ${node.title || 'node'}...`);
         node._running = true;  // colour driven by drawNode pulse
         canvas.setDirty(true, true);
+        pollStatus();
+    }
+}
+
+async function runThroughNode(node) {
+    await saveGraph();
+    const res = await fetch(`/projects/${PROJECT_ID}/run-through-node/${encodeURIComponent(node.id)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) { window.showToast('启动运行失败', 'danger'); return; }
+    const data = await res.json();
+    if (data.error) {
+        expandTerminal();
+        setTerminalContent('\u001b[1;31mERROR:\u001b[0m ' + data.error);
+        window.showToast('运行失败：' + data.error, 'danger');
+        return;
+    }
+    if (data.ok) {
+        setRunning(true);
+        expandTerminal();
+        setTerminalContent(`\u001b[1;36m从头运行至节点:\u001b[0m ${node.title || 'node'}...`);
+        pollStatus();
+    }
+}
+
+function groupScriptNodeIds(group) {
+    if (typeof group.recomputeInsideNodes === 'function') {
+        group.recomputeInsideNodes();
+    }
+    return (group._nodes || [])
+        .filter(isScriptGraphNode)
+        .map(node => node.id);
+}
+
+async function runGroupScope(group, throughEnd) {
+    const nodeIds = groupScriptNodeIds(group);
+    if (!nodeIds.length) {
+        window.showToast('分组中没有可执行脚本节点', 'danger');
+        return;
+    }
+
+    await saveGraph();
+    const endpoint = throughEnd ? 'run-through-group' : 'run-group';
+    const res = await fetch(`/projects/${PROJECT_ID}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_ids: nodeIds }),
+    });
+    if (!res.ok) { window.showToast('启动分组运行失败', 'danger'); return; }
+    const data = await res.json();
+    if (data.error) {
+        expandTerminal();
+        setTerminalContent('\u001b[1;31mERROR:\u001b[0m ' + data.error);
+        window.showToast('分组运行失败：' + data.error, 'danger');
+        return;
+    }
+    if (data.ok) {
+        setRunning(true);
+        expandTerminal();
+        setTerminalContent(throughEnd
+            ? '\u001b[1;36m从头运行至分组结尾...\u001b[0m'
+            : '\u001b[1;36m正在执行分组...\u001b[0m');
         pollStatus();
     }
 }

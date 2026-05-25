@@ -268,18 +268,28 @@ pub async fn node_output_file(
     Ok((headers, bytes).into_response())
 }
 
-pub async fn run_flow(
-    State(state): State<AppState>,
-    jar: CookieJar,
-    Path(id): Path<String>,
+#[derive(Clone)]
+enum ExecutionScope {
+    All,
+    Only(Vec<i64>),
+    Through(i64),
+    ThroughGroup(Vec<i64>),
+}
+
+#[derive(Deserialize)]
+pub struct GroupRunRequest {
+    pub node_ids: Vec<i64>,
+}
+
+async fn start_scoped_run(
+    state: &AppState,
+    id: &str,
+    scope: ExecutionScope,
 ) -> Result<Json<serde_json::Value>, Redirect> {
-    if !is_authenticated(&jar, &state.secret) {
-        return Err(Redirect::to("/login"));
-    }
     let flow = sqlx::query_as::<_, ProjectFlow>(
         "SELECT * FROM project_flows WHERE project_id = ? LIMIT 1",
     )
-    .bind(&id)
+    .bind(id)
     .fetch_optional(&state.pool)
     .await
     .unwrap_or(None);
@@ -287,7 +297,7 @@ pub async fn run_flow(
         return Ok(Json(serde_json::json!({"error": "no flow"})));
     };
     let project = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = ?")
-        .bind(&id)
+        .bind(id)
         .fetch_optional(&state.pool)
         .await
         .unwrap_or(None);
@@ -296,7 +306,7 @@ pub async fn run_flow(
     };
 
     let graph: serde_json::Value = serde_json::from_str(&flow.graph_data).unwrap_or_default();
-    if let Err(e) = preflight_graph(&graph, &state.data_dir, &project.name, None).await {
+    if let Err(e) = preflight_graph(&graph, &state.data_dir, &project.name, &scope).await {
         return Ok(Json(serde_json::json!({"error": e})));
     }
 
@@ -320,10 +330,21 @@ pub async fn run_flow(
     let data_dir = state.data_dir.clone();
     let pool = state.pool.clone();
     tokio::spawn(async move {
-        execute_flow(graph, project.name, data_dir, run_id, pool, runtime, None).await;
+        execute_flow(graph, project.name, data_dir, run_id, pool, runtime, scope).await;
     });
 
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+pub async fn run_flow(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
+    }
+    start_scoped_run(&state, &id, ExecutionScope::All).await
 }
 
 pub async fn run_node(
@@ -334,62 +355,42 @@ pub async fn run_node(
     if !is_authenticated(&jar, &state.secret) {
         return Err(Redirect::to("/login"));
     }
-    let flow = sqlx::query_as::<_, ProjectFlow>(
-        "SELECT * FROM project_flows WHERE project_id = ? LIMIT 1",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await
-    .unwrap_or(None);
-    let Some(flow) = flow else {
-        return Ok(Json(serde_json::json!({"error": "no flow"})));
-    };
-    let project = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = ?")
-        .bind(&id)
-        .fetch_optional(&state.pool)
-        .await
-        .unwrap_or(None);
-    let Some(project) = project else {
-        return Err(Redirect::to("/projects"));
-    };
+    start_scoped_run(&state, &id, ExecutionScope::Only(vec![node_id])).await
+}
 
-    let graph: serde_json::Value = serde_json::from_str(&flow.graph_data).unwrap_or_default();
-    if let Err(e) = preflight_graph(&graph, &state.data_dir, &project.name, Some(node_id)).await {
-        return Ok(Json(serde_json::json!({"error": e})));
+pub async fn run_through_node(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path((id, node_id)): Path<(String, i64)>,
+) -> Result<Json<serde_json::Value>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
     }
+    start_scoped_run(&state, &id, ExecutionScope::Through(node_id)).await
+}
 
-    let mut runtime = crate::routes::settings::load_runtime_config(&state.pool).await;
-    if let Err(e) = crate::slurm::resolve_auto(&mut runtime).await {
-        return Ok(Json(serde_json::json!({"error": e})));
+pub async fn run_group(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<String>,
+    Json(body): Json<GroupRunRequest>,
+) -> Result<Json<serde_json::Value>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
     }
-    if let Err(e) = crate::slurm::validate_runtime(&runtime).await {
-        return Ok(Json(serde_json::json!({"error": e})));
+    start_scoped_run(&state, &id, ExecutionScope::Only(body.node_ids)).await
+}
+
+pub async fn run_through_group(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    Path(id): Path<String>,
+    Json(body): Json<GroupRunRequest>,
+) -> Result<Json<serde_json::Value>, Redirect> {
+    if !is_authenticated(&jar, &state.secret) {
+        return Err(Redirect::to("/login"));
     }
-
-    let run_id = uuid::Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO flow_runs (id, flow_id, status) VALUES (?, ?, 'running')")
-        .bind(&run_id)
-        .bind(&flow.id)
-        .execute(&state.pool)
-        .await
-        .ok();
-
-    let data_dir = state.data_dir.clone();
-    let pool = state.pool.clone();
-    tokio::spawn(async move {
-        execute_flow(
-            graph,
-            project.name,
-            data_dir,
-            run_id,
-            pool,
-            runtime,
-            Some(node_id),
-        )
-        .await;
-    });
-
-    Ok(Json(serde_json::json!({"ok": true})))
+    start_scoped_run(&state, &id, ExecutionScope::ThroughGroup(body.node_ids)).await
 }
 
 #[derive(Clone, Copy)]
@@ -537,11 +538,59 @@ fn build_execution_order(
     Ok(exec_order)
 }
 
+fn execution_indices(
+    script_nodes: &[&serde_json::Value],
+    links: &[serde_json::Value],
+    scope: &ExecutionScope,
+) -> Result<Vec<usize>, String> {
+    let exec_order = build_execution_order(script_nodes, links)?;
+    match scope {
+        ExecutionScope::All => Ok(exec_order),
+        ExecutionScope::Only(node_ids) => {
+            let requested = node_ids
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
+            let selected = exec_order
+                .into_iter()
+                .filter(|&idx| requested.contains(&node_id(script_nodes[idx])))
+                .collect::<Vec<_>>();
+            if selected.is_empty() {
+                Err("选择的分组中没有可执行脚本节点".to_string())
+            } else {
+                Ok(selected)
+            }
+        }
+        ExecutionScope::Through(target_id) => {
+            let Some(last) = exec_order
+                .iter()
+                .position(|&idx| node_id(script_nodes[idx]) == *target_id)
+            else {
+                return Err("选择的节点不是可执行脚本节点".to_string());
+            };
+            Ok(exec_order[..=last].to_vec())
+        }
+        ExecutionScope::ThroughGroup(node_ids) => {
+            let requested = node_ids
+                .iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>();
+            let Some(last) = exec_order
+                .iter()
+                .rposition(|&idx| requested.contains(&node_id(script_nodes[idx])))
+            else {
+                return Err("选择的分组中没有可执行脚本节点".to_string());
+            };
+            Ok(exec_order[..=last].to_vec())
+        }
+    }
+}
+
 async fn preflight_graph(
     graph: &serde_json::Value,
     data_dir: &str,
     project_name: &str,
-    target_node_id: Option<i64>,
+    scope: &ExecutionScope,
 ) -> Result<(), String> {
     let nodes = graph
         .get("nodes")
@@ -558,20 +607,11 @@ async fn preflight_graph(
     if script_nodes.is_empty() {
         return Err("流程中没有可执行的脚本节点".to_string());
     }
-    let exec_order = build_execution_order(&script_nodes, &links)?;
-    let script_ids = script_nodes
+    let selected = execution_indices(&script_nodes, &links, scope)?;
+    let selected_ids = selected
         .iter()
-        .map(|node| node_id(node))
-        .collect::<Vec<_>>();
-
-    let selected = if let Some(target) = target_node_id {
-        let Some(idx) = script_ids.iter().position(|&id| id == target) else {
-            return Err("选择的节点不是可执行脚本节点".to_string());
-        };
-        vec![idx]
-    } else {
-        exec_order
-    };
+        .map(|&idx| node_id(script_nodes[idx]))
+        .collect::<std::collections::HashSet<_>>();
 
     for node_idx in selected {
         let node = script_nodes[node_idx];
@@ -643,7 +683,7 @@ async fn preflight_graph(
                         }
                     }
                     _ => {
-                        if target_node_id.is_some() {
+                        if !selected_ids.contains(&origin_node_id) {
                             let Some(src) = resolve_output_path(
                                 origin,
                                 origin_slot,
@@ -696,7 +736,7 @@ async fn execute_flow(
     run_id: String,
     pool: sqlx::SqlitePool,
     runtime: RuntimeConfig,
-    target_node_id: Option<i64>,
+    scope: ExecutionScope,
 ) {
     let nodes = graph
         .get("nodes")
@@ -710,7 +750,7 @@ async fn execute_flow(
         .unwrap_or_default();
 
     let script_nodes = sorted_script_nodes(&nodes);
-    let mut exec_order = match build_execution_order(&script_nodes, &links) {
+    let exec_order = match execution_indices(&script_nodes, &links, &scope) {
         Ok(order) => order,
         Err(error) => {
             tracing::error!("{error}");
@@ -724,19 +764,6 @@ async fn execute_flow(
             return;
         }
     };
-    if let Some(target) = target_node_id {
-        exec_order.retain(|&idx| node_id(script_nodes[idx]) == target);
-        if exec_order.is_empty() {
-            sqlx::query(
-                "UPDATE flow_runs SET status = 'failed', finished_at = CURRENT_TIMESTAMP WHERE id = ?",
-            )
-            .bind(&run_id)
-            .execute(&pool)
-            .await
-            .ok();
-            return;
-        }
-    }
 
     // Execute in topological order
     for (_step, &node_idx) in exec_order.iter().enumerate() {
@@ -1325,7 +1352,31 @@ pub async fn delete(
 
 #[cfg(test)]
 mod tests {
-    use super::{contains_ansi, format_log_message, LogKind};
+    use super::{
+        contains_ansi, execution_indices, format_log_message, node_id, ExecutionScope, LogKind,
+    };
+    use serde_json::{json, Value};
+
+    fn chain_graph() -> (Vec<Value>, Vec<Value>) {
+        (
+            vec![
+                json!({"id": 1, "type": "script/a", "inputs": []}),
+                json!({"id": 2, "type": "script/b", "inputs": [{"link": 10}]}),
+                json!({"id": 3, "type": "script/c", "inputs": [{"link": 11}]}),
+            ],
+            vec![json!([10, 1, 0, 2, 0]), json!([11, 2, 0, 3, 0])],
+        )
+    }
+
+    fn selected_ids(scope: ExecutionScope) -> Vec<i64> {
+        let (nodes, links) = chain_graph();
+        let script_nodes = nodes.iter().collect::<Vec<_>>();
+        execution_indices(&script_nodes, &links, &scope)
+            .expect("scope should be valid")
+            .into_iter()
+            .map(|idx| node_id(script_nodes[idx]))
+            .collect()
+    }
 
     #[test]
     fn formats_logs_with_ansi_sequences() {
@@ -1338,5 +1389,23 @@ mod tests {
     fn detects_ansi_escape_sequences() {
         assert!(contains_ansi("\x1b[32mgreen\x1b[0m"));
         assert!(!contains_ansi("plain text"));
+    }
+
+    #[test]
+    fn running_through_node_includes_topological_prefix() {
+        assert_eq!(selected_ids(ExecutionScope::Through(2)), vec![1, 2]);
+    }
+
+    #[test]
+    fn running_group_only_includes_group_script_nodes() {
+        assert_eq!(selected_ids(ExecutionScope::Only(vec![2, 3])), vec![2, 3]);
+    }
+
+    #[test]
+    fn running_through_group_ends_at_latest_group_node() {
+        assert_eq!(
+            selected_ids(ExecutionScope::ThroughGroup(vec![2, 3])),
+            vec![1, 2, 3]
+        );
     }
 }

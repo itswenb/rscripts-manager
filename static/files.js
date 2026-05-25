@@ -78,6 +78,45 @@ function getCurrentPath() {
     return new URLSearchParams(window.location.search).get('path') || '';
 }
 
+window.copyCurrentDirectoryPath = async function(path) {
+    const value = path || '/';
+
+    async function writeWithClipboardApi(text) {
+        if (!navigator.clipboard || !window.isSecureContext) {
+            throw new Error('clipboard-api-unavailable');
+        }
+        await navigator.clipboard.writeText(text);
+    }
+
+    function writeWithFallback(text) {
+        const input = document.createElement('textarea');
+        input.value = text;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(input);
+        if (!ok) {
+            throw new Error('clipboard-copy-failed');
+        }
+    }
+
+    try {
+        await writeWithClipboardApi(value);
+        window.showToast('路径已复制', 'success');
+    } catch (_) {
+        try {
+            writeWithFallback(value);
+            window.showToast('路径已复制', 'success');
+        } catch (error) {
+            window.showToast('复制失败，请手动复制路径', 'danger');
+        }
+    }
+};
+
 function promptNewFolder() {
     const name = prompt('文件夹名称：');
     if (!name) return;

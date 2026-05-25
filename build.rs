@@ -7,6 +7,11 @@ use std::{
 fn main() {
     println!("cargo:rerun-if-changed=static/input.css");
     println!("cargo:rerun-if-changed=templates");
+    println!("cargo:rerun-if-changed=assets/brand/ripeline.ico");
+
+    if let Err(err) = embed_windows_icon() {
+        panic!("failed to embed windows icon: {err}");
+    }
 
     let status = Command::new("tailwindcss")
         .args([
@@ -27,6 +32,27 @@ fn main() {
     if let Err(err) = embed_static_assets() {
         panic!("failed to embed static assets: {err}");
     }
+}
+
+fn embed_windows_icon() -> io::Result<()> {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return Ok(());
+    }
+
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let icon_path = manifest_dir.join("assets/brand/ripeline.ico");
+    if !icon_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("missing windows icon at {}", icon_path.display()),
+        ));
+    }
+
+    let mut resource = winres::WindowsResource::new();
+    resource.set_icon(icon_path.to_string_lossy().as_ref());
+    resource
+        .compile()
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string()))
 }
 
 fn embed_static_assets() -> io::Result<()> {

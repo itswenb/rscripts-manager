@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ripeline - {% block title %}{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=20260525-logo-refresh">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico?v=20260525-logo-refresh">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260525-logo-refresh">
     <link rel="stylesheet" href="/static/style.css?v=20260520-terminal">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/light.css">
     <script src="/static/vendor/htmx.min.js"></script>
@@ -22,13 +25,7 @@
         <nav class="hidden md:flex flex-col w-64 h-screen sticky left-0 top-0 py-4 bg-surface-container-lowest border-r border-outline-variant shrink-0 z-40">
             <div class="px-4 mb-4">
                 <div class="flex items-center gap-2 mb-2">
-                    <div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-on-primary-container">
-                        <i data-lucide="flask-conical" class="w-5 h-5"></i>
-                    </div>
-                    <div>
-                        <h1 class="text-lg font-semibold text-on-surface leading-tight">Ripeline</h1>
-                        <div class="font-mono text-xs text-muted-text">v0.1.0</div>
-                    </div>
+                    <img src="/static/brand/ripeline-logo.svg?v=20260525-logo-refresh" alt="Ripeline" class="h-10 w-auto shrink-0" />
                 </div>
             </div>
 
@@ -216,22 +213,8 @@
         }
 
         function setUsersProfileSuccess(message) {
-            setPanelStatus(document.getElementById('profile-status'), message, 'success');
-            const currentPasswordInput = document.getElementById('profile-current-password');
-            const currentPasswordFeedback = document.getElementById('profile-current-password-feedback');
-            const newPasswordInput = document.getElementById('profile-new-password');
-            const newPasswordFeedback = document.getElementById('profile-new-password-feedback');
-            const confirmPasswordInput = document.getElementById('profile-confirm-password');
-            const confirmPasswordFeedback = document.getElementById('profile-confirm-password-feedback');
-            if (currentPasswordInput && currentPasswordInput.value) {
-                setFieldFeedback(currentPasswordInput, currentPasswordFeedback, '当前密码已验证', 'success');
-            }
-            if (newPasswordInput && newPasswordInput.value) {
-                setFieldFeedback(newPasswordInput, newPasswordFeedback, '新密码已更新', 'success');
-            }
-            if (confirmPasswordInput && confirmPasswordInput.value) {
-                setFieldFeedback(confirmPasswordInput, confirmPasswordFeedback, '确认成功', 'success');
-            }
+            clearUsersProfileValidation();
+            window.showToast(message || '账户信息已保存', 'success');
         }
 
         window.initUsersProfilePage = function(root = document) {
@@ -382,7 +365,7 @@
                         await window.refreshCurrentUserSummary();
                     }
                 } catch (error) {
-                    setPanelStatus(document.getElementById('profile-status'), error.message || '保存失败', 'error');
+                    applyUsersProfileError(error.message || '保存失败');
                 } finally {
                     saveButton.disabled = false;
                     saveButton.classList.remove('opacity-50', 'cursor-not-allowed');

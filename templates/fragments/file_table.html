@@ -11,6 +11,15 @@
         {% endfor %}
     </div>
     <div class="flex items-center gap-2">
+        <button
+            type="button"
+            onclick="copyCurrentDirectoryPath(this.dataset.path)"
+            data-path="{{ full_current_path }}"
+            class="h-8 px-3 rounded border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium"
+            title="复制当前文件夹路径"
+        >
+            <i data-lucide="copy" class="w-4 h-4"></i> 复制路径
+        </button>
         <button onclick="promptNewFolder()" class="h-8 px-3 rounded border border-outline-variant bg-surface text-secondary hover:bg-surface-container-low hover:text-on-surface transition-colors flex items-center gap-1.5 text-sm font-medium">
             <i data-lucide="folder-plus" class="w-4 h-4"></i> 新建文件夹
         </button>
